@@ -1,34 +1,24 @@
 #define _GNU_SOURCE 1
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/eventfd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <libaio.h>
 #include <pthread.h>
-#include <time.h>
-#include <errno.h>
 #include <fcntl.h>
-#include <assert.h>
-#include <signal.h>
-#include <sched.h>
 #include <syslog.h>
-#include <poll.h>
-#include <urcu/uatomic.h>
-#include <urcu.h>
 #include <ioc.h>
 #include <ioc-util.h>
 // #include <mcheck.h>
 
 // Copyright (c) 2020 Martin Wilck, SUSE Software Solutions GmbH
 
-// SPDX-license-identifier: GPL-2.0-only
+// SPDX-license-identifier: GPL-2.0-or-later
 
 /* Number of concurrent IO threads */
 #define N_THREADS 32
