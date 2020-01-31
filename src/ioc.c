@@ -48,6 +48,10 @@ static int loglevel = DEFAULT_LOGLEVEL;
 #define container_of(ptr, type, member) ({		\
 			typeof( ((type *)0)->member ) *__mptr = (ptr);	\
 			(type *)( (char *)__mptr - offsetof(type,member) );})
+#define container_of_const(ptr, type, member) ({		\
+			typeof( ((const type *)0)->member ) *__mptr = (ptr); \
+			(const type *)( (const char *)__mptr - \
+					offsetof(type,member) );})
 
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 static pthread_key_t exit_key;
@@ -84,7 +88,10 @@ const char *ioc_status_name(unsigned int st)
 struct context;
 
 union event_notify {
-	pthread_cond_t *condvar;
+	struct {
+		pthread_cond_t cond;
+		pthread_mutex_t mutex;
+	} cv;
 	int eventfd;
 };
 
@@ -258,7 +265,7 @@ static bool event_notify(struct request *req)
 		val++;
 		break;
 	case IOC_NOTIFY_COND:
-		pthread_cond_broadcast(req->notify.condvar);
+		pthread_cond_broadcast(&req->notify.cv.cond);
 		break;
 	case IOC_NOTIFY_COMMON:
 		/* common will be woken up later */
@@ -499,8 +506,6 @@ static void release_aio_slot(struct context *ctx, unsigned int n)
 	pthread_rwlock_rdlock(&ctx->ctx_lock);
 	pthread_cleanup_push(rwlock_unlock, &ctx->ctx_lock);
 	if (n < ctx->n) {
-		/* avoid further notifcations to be sent */
-		ctx->req[n]->notify_type = IOC_NOTIFY_NONE;
 		unref_request(ctx->req[n]);
 		ctx->req[n] = NULL;
 	}
@@ -609,36 +614,44 @@ static void eat_pending_events(int fd)
 	}
 }
 
+#define ioc_wait_for_cond(FUNCTION, EQUAL, req, cond, mutex) \
+({							\
+	int _rv;					\
+							\
+	pthread_mutex_lock(mutex);			\
+	pthread_cleanup_push(mutex_unlock, mutex);	\
+	while ((_rv = FUNCTION(req)) == EQUAL)		\
+		pthread_cond_wait(cond, mutex);		\
+	pthread_cleanup_pop(1);				\
+	_rv;						\
+})
+
 #define define_ioc_wait_fn(NAME, FUNCTION, EQUAL, ACTION) \
-int ioc_wait_ ## NAME(struct iocb *iocb, pthread_mutex_t *mutex)       \
-{								       \
-	struct request *req;					       \
-	uint64_t val;						       \
-	int rc = 0, rv = 0;					       \
-								       \
-	if (!iocb) {						       \
-		errno = EINVAL;					       \
-		return -1;					       \
-	}							       \
-								       \
-	req = container_of(iocb, struct request, iocb);		       \
-	log(LOG_DEBUG, "%s: type = %d val=%d\n", __func__,	       \
-	    req->notify_type, FUNCTION(req));			       \
-								       \
-	switch (req->notify_type) {				       \
-	case IOC_NOTIFY_COMMON:					       \
-		mutex = &req->ctx->event_mutex;			       \
-		/* fallthrough */				       \
-	case IOC_NOTIFY_COND:					       \
-		if (!mutex) {					       \
-			errno = EINVAL;				       \
-			return -1;				       \
-		}						       \
-		pthread_mutex_lock(mutex);			       \
-		pthread_cleanup_push(mutex_unlock, mutex);	       \
-		while ((rv = FUNCTION(req)) == EQUAL)		       \
-			pthread_cond_wait(req->notify.condvar, mutex); \
-		pthread_cleanup_pop(1);					\
+int ioc_wait_ ## NAME(struct iocb *iocb)				\
+{									\
+	struct request *req;						\
+	uint64_t val;							\
+	int rc = 0, rv = 0;						\
+									\
+	if (!iocb) {							\
+		errno = EINVAL;						\
+		return -1;						\
+	}								\
+									\
+	req = container_of(iocb, struct request, iocb);			\
+	log(LOG_DEBUG, "%s: type = %d val=%d\n", __func__,		\
+	    req->notify_type, FUNCTION(req));				\
+									\
+	switch (req->notify_type) {					\
+	case IOC_NOTIFY_COMMON:						\
+		rv = ioc_wait_for_cond(FUNCTION, EQUAL, req,		\
+				       &req->ctx->event_cond,		\
+				       &req->ctx->event_mutex);		\
+		break;							\
+	case IOC_NOTIFY_COND:						\
+		rv = ioc_wait_for_cond(FUNCTION, EQUAL, req,		\
+				       &req->notify.cv.cond,		\
+				       &req->notify.cv.mutex);		\
 		break;							\
 	case IOC_NOTIFY_EVENTFD:					\
 		eat_pending_events(req->notify.eventfd);		\
@@ -653,7 +666,8 @@ int ioc_wait_ ## NAME(struct iocb *iocb, pthread_mutex_t *mutex)       \
 			} while (rc == -1 && errno == EAGAIN);		\
 									\
 			if (rc == -1) {					\
-				log(LOG_ERR, "%s: poll: %m\n", __func__); \
+				log(LOG_ERR, "%s: poll: %m\n",		\
+				    __func__);				\
 				break;					\
 			}						\
 			rc = read(req->notify.eventfd, &val, 8);	\
@@ -662,25 +676,26 @@ int ioc_wait_ ## NAME(struct iocb *iocb, pthread_mutex_t *mutex)       \
 			    __func__, rc, rc > 0 ? val : (uint64_t)0,	\
 			    req->notify.eventfd);			\
 			if (rc > 0) {					\
-				rc = 0;				       \
-			} else {				       \
-				log(LOG_ERR, "%s: read: %m\n", __func__); \
+				rc = 0;					\
+			} else {					\
+				log(LOG_ERR, "%s: read: %m\n",		\
+				    __func__);				\
 				break;					\
 			}						\
-		}						       \
-		break;						       \
-	default:						       \
-		errno = -EINVAL;				       \
-		return -1;					       \
-	}							       \
-								       \
-	log(LOG_DEBUG, "%s: rc=%d rv=%d\n", __func__, rc, rv);	       \
-	if (rc == 0) {						       \
-		ACTION;						       \
-		log(LOG_DEBUG, "%s: rc=%d rv=%d\n", __func__, rc, rv); \
-	} else							       \
-		log(LOG_ERR, "%s: error: %m\n", __func__);	       \
-	return rc;						       \
+		}							\
+		break;							\
+	default:							\
+		errno = -EINVAL;					\
+		return -1;						\
+	}								\
+									\
+	log(LOG_DEBUG, "%s: rc=%d rv=%d\n", __func__, rc, rv);		\
+	if (rc == 0) {							\
+		ACTION;							\
+		log(LOG_DEBUG, "%s: rc=%d rv=%d\n", __func__, rc, rv);	\
+	} else								\
+		log(LOG_ERR, "%s: error: %m\n", __func__);		\
+	return rc;							\
 }
 
 #define __get_running(req) uatomic_read(&req->io_running)
@@ -692,50 +707,105 @@ define_ioc_wait_fn(complete, __get_status, IO_PENDING,
 		   return rv |
 		   uatomic_read(&req->io_running) << _IO_RUNNING_SHIFT);
 
-void ioc_put_iocb(void *arg)
+int ioc_get_eventfd(const struct iocb *iocb) {
+	const struct request *req;
+
+	if (iocb == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	req = container_of_const(iocb, struct request, iocb);
+	if (req->notify_type != IOC_NOTIFY_EVENTFD) {
+		errno = EINVAL;
+		return -1;
+	}
+	return req->notify.eventfd;
+}
+
+void ioc_put_iocb(struct iocb *iocb)
 {
-	struct iocb *iocb = arg;
 	struct request *req;
 	struct context *ctx;
+	unsigned int type;
 
 	if (!iocb)
 		return;
 	req = container_of(iocb, struct request, iocb);
 	ctx = req->ctx;
+	type = req->notify_type;
+
+	/* avoid further notifcations to be sent */
+	req->notify_type = IOC_NOTIFY_NONE;
+	switch (type) {
+	case IOC_NOTIFY_COND:
+		pthread_mutex_destroy(&req->notify.cv.mutex);
+		pthread_cond_destroy(&req->notify.cv.cond);
+		break;
+	case IOC_NOTIFY_EVENTFD:
+		close(req->notify.eventfd);
+		break;
+	default:
+		break;
+	}
 
 	release_aio_slot(ctx, req->idx);
 }
 
-int ioc_set_notify(struct iocb *iocb, unsigned int type,
-		   pthread_cond_t *condvar, int eventfd)
+void ioc_put_iocb_cleanup(void *arg)
+	__attribute__((weak, alias("ioc_put_iocb")));
+
+static int ioc_set_notify(struct iocb *iocb, unsigned int type)
 {
 	struct request *req;
+	int rv;
 
 	if (!iocb || type > IOC_NOTIFY_NONE) {
 		errno = EINVAL;
 		return -1;
 	}
 	req = container_of(iocb, struct request, iocb);
-	req->notify_type = type;
 	switch (type) {
-	case IOC_NOTIFY_COMMON:
-		req->notify.condvar = &req->ctx->event_cond;
-		break;
 	case IOC_NOTIFY_COND:
-		req->notify.condvar = condvar;
+		rv = pthread_cond_init(&req->notify.cv.cond, NULL);
+		if (rv != 0) {
+			log(LOG_ERR,
+			    "%s: error initializing condition variable",
+			    __func__);
+			errno = rv;
+			return -1;
+		}
+		rv = pthread_mutex_init(&req->notify.cv.mutex, NULL);
+		if (rv != 0) {
+			log(LOG_ERR,
+			    "%s: error initializing mutex", __func__);
+			pthread_cond_destroy(&req->notify.cv.cond);
+			errno = rv;
+			return -1;
+		}
 		break;
 	case IOC_NOTIFY_EVENTFD:
-		req->notify.eventfd = eventfd;
+		req->notify.eventfd = eventfd(0, 0);
+		if (req->notify.eventfd == -1) {
+			log(LOG_ERR, "%s: eventfd: %m\n", __func__);
+			return -1;
+		}
 		log(LOG_DEBUG, "%s: job %d fd=%d\n", __func__,
-		    req->idx, eventfd);
+		    req->idx, req->notify.eventfd);
+		break;
+	case IOC_NOTIFY_NONE:
+	case IOC_NOTIFY_COMMON:
 		break;
 	default:
-		break;
+		log(LOG_ERR, "%s: invalid notification type: %u\n", __func__,
+		    type);
+		errno = EINVAL;
+		return -1;
 	}
+	req->notify_type = type;
 	return 0;
 }
 
-struct iocb *ioc_new_iocb(struct context *ctx)
+struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type)
 {
 	struct request *req;
 	unsigned int n;
@@ -748,14 +818,19 @@ struct iocb *ioc_new_iocb(struct context *ctx)
 	uatomic_set(&req->io_running, false);
 
 	req->ctx = ctx;
+	/* alloc_aio_slot() increases refcount */
 	n = alloc_aio_slot(ctx, req);
 	if (n == INVALID_SLOT) {
 		log(LOG_ERR, "%s: failed to allocate slot\n", __func__);
+		errno = ERANGE;
 		free(req);
 		return NULL;
 	}
 	req->idx = n;
-	ioc_set_notify(&req->iocb, IOC_NOTIFY_COMMON, NULL, 0);
+	if (ioc_set_notify(&req->iocb, type) != 0) {
+		unref_request(req);
+		return NULL;
+	}
 	return &req->iocb;
 }
 

@@ -71,37 +71,11 @@ struct context *ioc_create_context(void);
 void ioc_destroy_context(struct context *c);
 
 /**
- * ioc_new_iocb() - create an iocb object
- * @ctx: context in which to create the iocb
- *
- * This function creates the basic unit for I/O in libioclient,
- * the iocb. The data structure is the same as in libaio.
- * The libaio functions io_prep_pread() and io_prep_pwrite()
- * can be used to initialize &iocb objects for actual I/O.
- */
-struct iocb *ioc_new_iocb(struct context *ctx);
-
-/**
- * ioc_put_iocb() - discard an iocb object
- * @arg: pointer to an iocb object
- *
- * Drop a reference to an iocb object that is no longer used, and
- * detach it from the context it was created on.
- * The argument is define as ``void*`` to make it possible to pass this
- * function to pthread_cleanup_push() without casting. The iocb
- * object can't be accessed any more, but will continue to exist
- * until possible in-flight IO completes. Notifications for this iocb
- * will not be sent any more after ioc_put_iocb() has been called.
- */
-void ioc_put_iocb(void *arg);
-
-/**
  * enum ioc_notify_type - notification type for iocb objects
  * @IOC_NOTIFY_COMMON:   use a condition variable shared by the all iocbs in
- *                       the context. This is the default.
+ *                       the context.
  * @IOC_NOTIFY_COND:     use a iocb-specific condition variable.
- *                       This is less prone to contention. It requires a mutex
- *                       that is controlled by the application.
+ *                       This is less prone to contention.
  * @IOC_NOTIFY_EVENTFD:  use a linux  ``eventfd`` which is created by the
  *                       application.
  * @IOC_NOTIFY_NONE:     Don't use notification.
@@ -114,24 +88,55 @@ enum ioc_notify_type {
 };
 
 /**
- * ioc_set_notify() - set notification method for an iocb
- * @iocb:     iocb object to act on
+ * ioc_new_iocb() - create an iocb object
+ * @ctx: context in which to create the iocb
  * @type:     enum &ioc_notify_type value, see above.
- * @condvar:  an initialized pthreads condition variable to use
- *            (only for &IOC_NOTIFY_COND).
- * @eventd:   the file descriptor for the eventfd to use, must
- *            have been opened with ``eventfd``
- *            (only for &IOC_NOTIFY_EVENTFD).
  *
- * This function sets the desired notification method for the
- * iocb (see enum &ioc_notify_type), and its parameters. Parameters 
- * that are unused by the chosen method are ignored.
+ * This function creates the basic unit for I/O in libioclient,
+ * the iocb. The data structure is the same as in libaio.
+ * The libaio functions io_prep_pread() and io_prep_pwrite()
+ * can be used to initialize &iocb objects for actual I/O.
  *
- * Return: 0 on success. On error, -1 is returned, and errno is
- *         set to an error code. Supported error code: -EINVAL.
+ * Return: a new iocb in case of success, NULL otherwise.
  */
-int ioc_set_notify(struct iocb *iocb, unsigned int type,
-		   pthread_cond_t *condvar, int eventfd);
+struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type);
+
+/**
+ * ioc_get_eventfd() - obtain iocb's eventfd
+ * @iocb: pointer to an iocb object
+ *
+ * Return the iocb's eventfd, to be used in the application using select(),
+ * poll(), epoll() or similar. The returned file descriptor shouldn't be used
+ * any more after calling ioc_put_iocb() on this iocb.
+ *
+ * Return:
+ * The iocb's event fd on success, -1 on failure.
+ * Error code: EINVAL: The notifcation type of this iocb was not
+ *	IOC_NOTIFY_EVENTFD.
+ */
+int ioc_get_eventfd(const struct iocb *iocb);
+
+/**
+ * ioc_put_iocb() - discard an iocb object
+ * @iocb: pointer to an iocb object
+ *
+ * Drop a reference to an iocb object that is no longer used, and
+ * detach it from the context it was created on.
+ * The iocb object can't be accessed any more, but will continue to exist
+ * until possible in-flight IO completes. Notifications for this iocb will not
+ * be sent any more after ioc_put_iocb() has been called.
+ */
+void ioc_put_iocb(struct iocb *iocb);
+
+/**
+ * ioc_put_iocb_cleanup() - discard an iocb object
+ * @arg: pointer to an iocb object
+ *
+ * This is exactly like ioc_put_iocb, except for the function prototype.
+ * The argument is define as ``void*`` to make it possible to pass this
+ * function to pthread_cleanup_push() without casting.
+ */
+void ioc_put_iocb_cleanup(void *arg);
 
 /**
  * ioc_submit() - submit I/O
@@ -149,7 +154,6 @@ int ioc_set_notify(struct iocb *iocb, unsigned int type,
  * the iocb will be "running", and the status will be &IO_PENDING.
  */
 int ioc_submit(struct iocb *iocb, const struct timespec *deadline);
-
 
 /**
  * ioc_status() - get status value from ioc_get_status() return code
@@ -188,7 +192,6 @@ int ioc_get_status(const struct iocb *iocb);
 /**
  * ioc_wait_complete() - wait until iocb status is known
  * @iocb:    the iocb to wait on
- * @mutex:   the mutex to use (IOC_NOTIFY_COND only)
  *
  * This function waits on an iocb until its status has reached a
  * "result" value, IOW the stauts is not &IO_PENDING any more.
@@ -199,25 +202,21 @@ int ioc_get_status(const struct iocb *iocb);
  * Return: See ioc_get_status().
  */
 
-int ioc_wait_complete(struct iocb *iocb, pthread_mutex_t *mutex);
+int ioc_wait_complete(struct iocb *iocb);
 
 /**
  * ioc_wait_idle() - wait until more I/O can be submitted
  * @iocb:    the iocb to wait on
- * @mutex:   the mutex to use (IOC_NOTIFY_COND only)
  *
  * This function waits until I/O in flight completes. If it returns
  * success, the status is guaranteed to be &IO_IDLE, and ioc_is_running()
  * is guaranteed to return ``false``, until ioc_submit() is called again.
- * For notification method &IOC_NOTIFY_COND, an initialized, unlocked mutex
- * has to be passed in the @mutex parameter, which is ignored for other
- * notificatin methods.
  *
  * Return: 0 in case of success. -1 in case of failure.
  *         Error code: -EINVAL: called for notification type &IOC_NOTIFY_NONE.
  *         For IOC_NOTIFY_EVENTFD, other errno values as set by read()
  *         and poll() are possible.
  */
-int ioc_wait_idle(struct iocb *iocb, pthread_mutex_t *mutex);
+int ioc_wait_idle(struct iocb *iocb);
 
 #endif /* _IOC_H */

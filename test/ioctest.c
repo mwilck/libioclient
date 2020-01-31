@@ -76,14 +76,6 @@ static void print_stats(void *arg)
 	    s->overtime / ((long)s->timedout + 1), s->maxdelta);
 }
 
-static void close_fdp(void *arg)
-{
-	int *fd = arg;
-
-	if (fd && *fd >= 0)
-		close(*fd);
-}
-
 static void *io_thread(void *arg)
 {
 	struct io_job *job = arg;
@@ -93,14 +85,10 @@ static void *io_thread(void *arg)
 	struct context *ctx = job->ctx;
 	struct iocb *iocb;
 	struct stats stats;
-	pthread_mutex_t my_mutex = PTHREAD_MUTEX_INITIALIZER, *mutex = NULL;
-	pthread_cond_t my_cond = PTHREAD_COND_INITIALIZER;
-	int event_fd = -1;
 
 	memset(&stats, 0, sizeof(stats));
 	stats.job = job;
 
-	pthread_cleanup_push(close_fdp, &event_fd);
 	pthread_cleanup_push(free, job);
 	pthread_cleanup_push(print_stats, &stats);
 
@@ -136,25 +124,13 @@ static void *io_thread(void *arg)
 	}
 	pthread_cleanup_push(free, buf);
 
-	iocb = ioc_new_iocb(ctx);
+	iocb = ioc_new_iocb(ctx, IOC_NOTIFY);
 	if (!iocb) {
 		free(buf);
+		log(LOG_ERR, "%s: ioc_new_iocb: %m\n", __func__);
 		return NULL;
 	}
-	pthread_cleanup_push(ioc_put_iocb, iocb);
-
-	switch (IOC_NOTIFY) {
-	case IOC_NOTIFY_COND:
-		ioc_set_notify(iocb, IOC_NOTIFY_COND, &my_cond, -1);
-		mutex = &my_mutex;
-		break;
-	case IOC_NOTIFY_EVENTFD:
-		event_fd = eventfd(0, 0);
-		ioc_set_notify(iocb, IOC_NOTIFY_EVENTFD, NULL, event_fd);
-		break;
-	default:
-		break;
-	};
+	pthread_cleanup_push(ioc_put_iocb_cleanup, iocb);
 
 	log(LOG_DEBUG, "io thread %d starting, size %ld\n", job->n, size);
 
@@ -166,7 +142,7 @@ static void *io_thread(void *arg)
 		bool running;
 		uint64_t tmo;
 
-		if (ioc_wait_idle(iocb, mutex) == -1) {
+		if (ioc_wait_idle(iocb) == -1) {
 			log(LOG_ERR, "%s: failed to wait for idle: %m\n",
 			    __func__);
 			break;
@@ -196,7 +172,7 @@ static void *io_thread(void *arg)
 			sched_yield();
 		}
 
-		sts = ioc_wait_complete(iocb, mutex);
+		sts = ioc_wait_complete(iocb);
 		if (sts == -1) {
 			log(LOG_ERR, "%s: failed to wait for completion: %m\n",
 			    __func__);
@@ -237,7 +213,6 @@ static void *io_thread(void *arg)
 	}
 
 	log(LOG_NOTICE, "io thread %d exiting:\n", job->n);
-	pthread_cleanup_pop(1);
 	pthread_cleanup_pop(1);
 	pthread_cleanup_pop(1);
 	pthread_cleanup_pop(1);
