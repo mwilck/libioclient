@@ -259,7 +259,7 @@ static bool event_notify(struct request *req)
 	switch (req->notify_type) {
 	case IOC_NOTIFY_EVENTFD:
 		write(req->notify.eventfd, &val, sizeof(val));
-		log(LOG_INFO, "%s: wrote %"PRIu64" to fd=%d\n",
+		log(LOG_DEBUG, "%s: wrote %"PRIu64" to fd=%d\n",
 		    __func__, val, req->notify.eventfd);
 		val++;
 		break;
@@ -678,8 +678,8 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 	}
 
 	req = container_of(iocb, struct request, iocb);
-	log(LOG_DEBUG, "%s: type = %d val=%d\n", __func__,
-	    req->notify_type, _ioc_get_status(req));
+	log(LOG_DEBUG, "%s: type = %d val=%d mask=%08x\n", __func__,
+	    req->notify_type, _ioc_get_status(req), mask);
 
 	switch (req->notify_type) {
 	case IOC_NOTIFY_COMMON:
@@ -709,8 +709,10 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 				    __func__);
 				break;
 			}
+			log(LOG_DEBUG + 1, "%s sts=%x=%s\n", __func__, rv,
+			    ioc_status_name(rv));
 			rc = read(req->notify.eventfd, &val, 8);
-			log(LOG_INFO,
+			log(LOG_DEBUG,
 			    "%s: (%d) read %"PRIu64" from fd=%d\n",
 			    __func__, rc, rc > 0 ? val : (uint64_t)0,
 			    req->notify.eventfd);
@@ -1013,8 +1015,9 @@ static void *event_thread(void *arg)
 					    == IO_RUNNING) {
 						action_needed = action_needed ||
 							event_notify(req);
-						log(LOG_DEBUG, "%s: job %u: timeout\n",
-						    __func__, req->idx);
+						log(LOG_DEBUG, "%s: job %u: timed out, sts=%s\n",
+						    __func__, req->idx,
+						    ioc_status_name(_ioc_get_status(req)));
 					}
 				} else if (req->deadline < max_wait &&
 					   ioc_is_inflight(_ioc_get_status(req)))
