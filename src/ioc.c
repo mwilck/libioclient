@@ -739,11 +739,11 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 }
 
 int ioc_wait_done(struct iocb *iocb, int *st) {
-	return _ioc_wait(iocb, st, ~0);
+	return _ioc_wait(iocb, st, ~IO_TIMEOUT);
 }
 
 int ioc_wait_event(struct iocb *iocb, int *st) {
-	return _ioc_wait(iocb, st, ~IO_TIMEOUT);
+	return _ioc_wait(iocb, st, ~0);
 }
 
 int ioc_get_eventfd(const struct iocb *iocb) {
