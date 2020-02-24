@@ -23,7 +23,7 @@
 /* Number of concurrent IO threads */
 #define N_THREADS 32
 /* IO timeout until a job is considered timed out */
-#define JOB_TIMEOUT_US 50000
+#define JOB_TIMEOUT_US 10000
 /* Runtime: Time to run random start / stop of IO threads */
 #define RUNTIME_US 10000000
 /* wait time between starting IO jobs */
