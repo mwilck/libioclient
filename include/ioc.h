@@ -7,29 +7,29 @@
 
 /**
  * enum io_status - the "result" of an I/O operation
- * @IO_UNUSED:  not in use
- * @IO_IDLE:    idle, no I/O in flight recently
- * @IO_PENDING: waiting for I/O to either complete or time out
- * @IO_OK:      I/O completed successfully
- * @IO_TMO:     timeout occured, I/O may still be in flight
- * @IO_BAD:     an error occured, details in iocb fields
+ * @IO_DONE:    ready for submission (idle or done)
+ * @IO_RUNNING: I/O submitted, in flight
+ * @IO_TIMEOUT: Timed out
+ * @IO_ERR:	Error during iocb submission
+ * @IO_IDLE:	Idle, ready for submission
+ * @IO_INVALID:	invalid iocb pointer
  */
 enum io_status {
-	IO_UNUSED,
-	IO_IDLE,
-	IO_PENDING,
-	IO_OK,
-	IO_TMO,
-	IO_BAD,
+	IO_RUNNING = 0,
+	IO_TIMEOUT = (1 << 0),
+	IO_DONE    = (1 << 1),
+	IO_ERR     = (1 << 2),
+	IO_IDLE    = (1 << 4),
+	IO_INVALID = (1 << 8),
 };
 
 /**
  * ioc_status_name() - printed representation of an enum &io_status
  * @st: an &io_status value
  *
- * Return: character string representing the status
+  * Return: character string representing the status
  */
-const char *ioc_status_name(unsigned int st);
+const char *ioc_status_name(int st);
 
 struct context;
 struct iocb;
@@ -86,6 +86,16 @@ enum ioc_notify_type {
 	IOC_NOTIFY_EVENTFD,
 	IOC_NOTIFY_NONE,
 };
+
+/**
+ * ioc_is_inflight() - check if IO is in flight for iocb
+ * @st: return value from ioc_get_status() or ioc_wait_complete()
+ *
+ * Return: ``true`` if I/O is in flight.
+ */
+static inline bool ioc_is_inflight(int st) {
+	return !(st & IO_DONE);
+}
 
 /**
  * ioc_new_iocb() - create an iocb object
@@ -145,6 +155,8 @@ void ioc_put_iocb_cleanup(void *arg);
  *
  * Submit an iocb, which should have been prepared for aio e.g. using
  * the libaio convenience functions io_prep_pread() and io_prep_pwrite().
+ * If the iocb has been submitted before, ioc_reset() must be called before
+ * submitting it again.
  * unlike io_submit(), only a single iocb can be submitted at one time.
  * The @deadline parameter specifies the timeout for this I/O request,
  * as absolute time using the ``CLOCK_MONOTONIC`` system clock.
@@ -152,29 +164,26 @@ void ioc_put_iocb_cleanup(void *arg);
  * expired already when ioc_submit() is called, a timeout notification
  * will be signalled immediately. Immediately after calling io_submit(),
  * the iocb will be "running", and the status will be &IO_PENDING.
+ *
+ * Return:
+ * 0 on success, -1 on failure (sets errno).
+ * Errno values: EINVAL: invalid iocb pointer. EBUSY: iocb is busy, call
+ * ioc_reset() first. Other values: see io_submit().
  */
 int ioc_submit(struct iocb *iocb, const struct timespec *deadline);
 
 /**
- * ioc_status() - get status value from ioc_get_status() return code
- * @st: return value from ioc_get_status() or ioc_wait_complete()
+ * ioc_reset() - reset iocb status before new submission
+ * @iocb:      iocb to reset
  *
- * Return: the status byte (enum &io_status) from @st.
- */
-static inline int ioc_status(int st) {
-	return (st & IO_STATUS_MASK);
-}
-
-/**
- * ioc_is_running() - check if I/O is still in flight
- * @st: return value from ioc_get_status() or ioc_wait_complete()
+ * An application calls this function on a previously submitted and completed iocb.
+ * This tells the librarry that the application is done processing the result.
  *
- * Return: ``true`` if I/O is in flight. ioc_submit() may only be
- *         called on this iocb after this returns ``false``.
+ * Return:
+ * 0 on success, -1 on failure. errno values: EINVAL: invalid iocb passed.
+ * EBUSY: I/O is still in flight, resetting isn't possible.
  */
-static inline bool ioc_is_running(int st) {
-	return !!(st & _IO_RUNNING);
-}
+int ioc_reset(struct iocb *iocb);
 
 /**
  * ioc_get_status() - retrieve current status of iocb
@@ -183,40 +192,39 @@ static inline bool ioc_is_running(int st) {
  * Call ioc_status() and ioc_is_running() on the return value
  * of this function to interpret the value.
  *
- * Return: a combined value representing the &io_status and the
- *         informatin whether I/O is still in flight. This value
- *         is positive. -1 if an invalid iocb object is detected.
+ * Return: a combined value representing the &io_status.
+ *         IO_INVALID if an invalid iocb object is detected.
  */
 int ioc_get_status(const struct iocb *iocb);
 
 /**
- * ioc_wait_complete() - wait until iocb status is known
+ * ioc_wait_event() - wait for completion or timeout
  * @iocb:    the iocb to wait on
+ * @st:	     pointer for io_status
  *
- * This function waits on an iocb until its status has reached a
- * "result" value, IOW the stauts is not &IO_PENDING any more.
- * When this function returns after io_submit() had been called,
- * the status is either &IO_OK, &IO_BAD, or &IO_TMO. In the latter case,
- * I/O is usually still in flight when this function returns.
+ * This function waits on an iocb until its status has either
+ * completed or timed out. If the function is successful and ``st``
+ * is non-null, the io_status after waiting is stored in ``st``.
  *
- * Return: See ioc_get_status().
+ * Return: See ioc_wait_done().
  */
-
-int ioc_wait_complete(struct iocb *iocb);
+int ioc_wait_event(struct iocb *iocb, int *st);
 
 /**
- * ioc_wait_idle() - wait until more I/O can be submitted
+ * ioc_wait_done() - wait until completion
  * @iocb:    the iocb to wait on
+ * @st:	     pointer for io_status
  *
  * This function waits until I/O in flight completes. If it returns
- * success, the status is guaranteed to be &IO_IDLE, and ioc_is_running()
- * is guaranteed to return ``false``, until ioc_submit() is called again.
+ * success, ioc_is_ready() is guaranteed to return ``true``.
+ * If the function is successful and ``st`` is non-null, the io_status after
+ * waiting is stored in ``st``.
  *
  * Return: 0 in case of success. -1 in case of failure.
  *         Error code: -EINVAL: called for notification type &IOC_NOTIFY_NONE.
  *         For IOC_NOTIFY_EVENTFD, other errno values as set by read()
  *         and poll() are possible.
  */
-int ioc_wait_idle(struct iocb *iocb);
+int ioc_wait_done(struct iocb *iocb, int *st);
 
 #endif /* _IOC_H */

@@ -138,11 +138,10 @@ static void *io_thread(void *arg)
 
 		int rc = -1;
 		struct timespec ts_start, ts_tmo;
-		int sts;
-		bool running;
+		int r, sts;
 		uint64_t tmo;
 
-		if (ioc_wait_idle(iocb) == -1) {
+		if (ioc_wait_done(iocb, NULL) == -1) {
 			log(LOG_ERR, "%s: failed to wait for idle: %m\n",
 			    __func__);
 			break;
@@ -154,6 +153,10 @@ static void *io_thread(void *arg)
 		io_prep_pread(iocb, job->fd, buf, IOSIZE, ofs);
 
 	repeat:
+		if (ioc_reset(iocb) == -1) {
+			log(LOG_ERR, "%s: ioc_reset: %m\n", __func__);
+			break;
+		}
 		clock_gettime(CLOCK_MONOTONIC, &ts_start);
 		tmo = ts_to_us(&ts_start);
 		tmo += (job->tmo + (rand() % job->tmo)) / 2;
@@ -172,20 +175,17 @@ static void *io_thread(void *arg)
 			sched_yield();
 		}
 
-		sts = ioc_wait_complete(iocb);
-		if (sts == -1) {
+		r = ioc_wait_event(iocb, &sts);
+		if (r == -1) {
 			log(LOG_ERR, "%s: failed to wait for completion: %m\n",
 			    __func__);
 			break;
 		}
-		running = ioc_is_running(sts);
-		sts = ioc_status(sts);
 
-		log(LOG_INFO, "%s: job %d:%s sts=%s\n",
-		    __func__, job->n, running ? " timeout," : "",
-		    ioc_status_name(sts));
+		log(LOG_INFO, "%s: job %d sts=%s\n",
+		    __func__, job->n, ioc_status_name(sts));
 
-		if (running) {
+		if (ioc_is_inflight(sts)) {
 			int64_t delta;
 			struct timespec ts_now;
 
@@ -200,10 +200,10 @@ static void *io_thread(void *arg)
 				    __func__, ioc_status_name(sts), ts_to_us(&ts_now),
 				    tmo, delta);
 			}
-		} else if (sts == IO_OK) {
+		} else if (sts == IO_DONE) {
 			stats.completed++;
 			stats.bytes += IOSIZE;
-		} else if (sts == IO_BAD) {
+		} else {
 			stats.bad++;
 			sched_yield();
 			goto repeat;

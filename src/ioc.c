@@ -62,27 +62,28 @@ static void create_exit_key(void)
 }
 
 static struct {
-	enum io_status st_id;
+	int st_val;
 	char *st_name;
 } _status_names [] = {
-	{ IO_UNUSED, "unused", },
+	{ IO_RUNNING, "running", },
+	{ IO_TIMEOUT, "timed out", },
+	{ IO_DONE, "done", },
+	{ IO_DONE|IO_TIMEOUT, "done after timeout", },
+	{ IO_ERR, "error", },
+	{ IO_ERR|IO_TIMEOUT, "error after timeout", },
 	{ IO_IDLE, "idle", },
-	{ IO_PENDING, "pending", },
-	{ IO_OK, "good" },
-	{ IO_TMO, "timeout", },
-	{ IO_BAD, "error", },
+	{ IO_INVALID, "invalid", },
 };
 
-const char *ioc_status_name(unsigned int st)
+const char *ioc_status_name(int st)
 {
 	unsigned int i;
 
-	st = ioc_status(st);
 	for (i = 0; i < sizeof(_status_names)/sizeof(*_status_names); i++) {
-		if (st == _status_names[i].st_id)
+		if (st == _status_names[i].st_val)
 			return _status_names[i].st_name;
 	}
-	return "unknown";
+	return "UNKNOWN";
 }
 
 struct context;
@@ -98,7 +99,6 @@ union event_notify {
 struct request {
 	struct iocb iocb;
 	enum io_status io_status;
-	bool io_running;
 	uint64_t deadline;
 	unsigned int refcount;
 	struct context *ctx;
@@ -107,10 +107,10 @@ struct request {
 	union event_notify notify;
 };
 
-static inline int ioc_make_status(const struct request *req)
+static inline int _ioc_get_status(const struct request *req)
 {
-	return uatomic_read(&req->io_status) |
-		uatomic_read(&req->io_running) << _IO_RUNNING_SHIFT;
+	cmm_smp_rmb();
+	return uatomic_read(&req->io_status);
 }
 
 struct context {
@@ -226,9 +226,8 @@ static void disarm_event_timer(struct context *c)
 	pthread_cleanup_pop(1);
 }
 
-static void ref_request(void *arg)
+static void ref_request(struct request *r)
 {
-	struct request *r = arg;
 	int n;
 
 	if (!r)
@@ -237,17 +236,17 @@ static void ref_request(void *arg)
 	 log(LOG_DEBUG + 1, "req %p +refcount=%d\n", r, n);
 }
 
-static void unref_request(void *arg)
+static void unref_request(struct request *r)
 {
-	struct request *r = arg;
 	int n;
 
 	if (!r)
 		return;
 	n = uatomic_sub_return(&r->refcount, 1);
 	if (n == 0) {
-		log(LOG_DEBUG, "%s: freeing request %d, running: %d\n",
-		    __func__, r->idx, uatomic_read(&r->io_running));
+		log(LOG_DEBUG, "%s: freeing request %d, in flight: %s\n",
+		    __func__, r->idx,
+		    ioc_is_inflight(_ioc_get_status(r)) ? "y" : "n");
 		free(r);
 	}
 	log(LOG_DEBUG + 1, "req %p -refcount=%d\n", r, n);
@@ -286,6 +285,18 @@ static void discard_aio_context(struct context *c)
 {
 	pthread_t et;
 	int rc;
+	unsigned int i;
+
+	for (i = 0; i < c->n; i++) {
+		struct request *req = c->req[i];
+		struct io_event ev;
+
+		if (!req || !ioc_is_inflight(_ioc_get_status(req)))
+			continue;
+
+		/* This fails always, try nonetheless */
+		io_cancel(c->aio_ctx, &req->iocb, &ev);
+	}
 
 	pthread_mutex_lock(&c->event_mutex);
 	pthread_cleanup_push(mutex_unlock, &c->event_mutex)
@@ -310,35 +321,37 @@ static bool restart_io(struct context *c, unsigned int n)
 	unsigned int i;
 	int rc;
 	bool need_wake = false;
+	uint64_t deadline = UINT64_MAX;
 
 	for (i = 0; i < n; i++) {
 		struct request *req = c->req[i];
 		struct iocb *iocb;
 
-		if (!req || !uatomic_read(&req->io_running))
+		if (!req || !ioc_is_inflight(_ioc_get_status(req)))
 			continue;
 
 		iocb = &req->iocb;
 
 		ref_request(req);
-		/* FIXME: should we postpone the timeout? How? */
 		rc = io_submit(c->aio_ctx, 1, &iocb);
 
 		if (rc != 1) {
-
-			c->req[i] = NULL;
-			uatomic_set(&req->io_status, IO_BAD);
-			uatomic_set(&req->io_running, false);
+			uatomic_set(&req->io_status, IO_ERR);
 			unref_request(req);
 			log(LOG_ERR, "%s: io_submit slot %u: %s\n",
 			    __func__, i, strerror(-rc));
 
 			need_wake = need_wake || event_notify(req);
 		} else {
-			arm_event_timer(c, req->deadline);
+			uatomic_set(&req->io_status, IO_RUNNING);
+			if (req->deadline < deadline)
+				deadline = req->deadline;
 			log(LOG_DEBUG, "%s: slot %u restarted\n", __func__, i);
 		}
 	}
+	/* The previous io thread, if any, would have disarmed the timer */
+	if (deadline < UINT64_MAX)
+		arm_event_timer(c, deadline);
 
 	return need_wake;
 }
@@ -541,6 +554,28 @@ static unsigned int alloc_aio_slot(struct context *ctx, struct request *req)
 	return INVALID_SLOT;
 }
 
+int ioc_reset(struct iocb *iocb)
+{
+	struct request *req;
+	if (!iocb) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	req = container_of(iocb, struct request, iocb);
+	switch (_ioc_get_status(req)) {
+	case IO_RUNNING:
+	case IO_TIMEOUT:
+		errno = EBUSY;
+		return -1;
+	default:
+		/* No race possible here, the event thread only operates
+		   on RUNNING or TIMEOUT state */
+		uatomic_set(&req->io_status, IO_IDLE);
+		return 0;
+	}
+}
+
 int ioc_submit(struct iocb *iocb, const struct timespec *deadline)
 {
 	struct request *req;
@@ -548,11 +583,15 @@ int ioc_submit(struct iocb *iocb, const struct timespec *deadline)
 	int rc, ret;
 
 	if (!iocb) {
-		errno = -EINVAL;
+		errno = EINVAL;
 		return -1;
 	}
 
 	req = container_of(iocb, struct request, iocb);
+	if (_ioc_get_status(req) != IO_IDLE) {
+		errno = EBUSY;
+		return -1;
+	}
 	ctx = req->ctx;
 
 	req->deadline = deadline ? ts_to_us(deadline) : UINT64_MAX;
@@ -560,17 +599,15 @@ int ioc_submit(struct iocb *iocb, const struct timespec *deadline)
 	pthread_rwlock_rdlock(&ctx->ctx_lock);
 	pthread_cleanup_push(rwlock_unlock, &ctx->ctx_lock);
 
+	uatomic_set(&req->io_status, IO_RUNNING);
 	ref_request(req);
-	uatomic_set(&req->io_running, true);
-	uatomic_set(&req->io_status, IO_PENDING);
 
 	rc = io_submit(ctx->aio_ctx, 1, &iocb);
 
 	if (rc != 1) {
 		ret = -1;
 		errno = -rc;
-		uatomic_set(&req->io_running, false);
-		uatomic_set(&req->io_status, IO_IDLE);
+		uatomic_set(&req->io_status, IO_ERR);
 		unref_request(req);
 		log(LOG_ERR, "%s: io_submit (%p): %s\n",
 		    __func__, ctx->aio_ctx, strerror(-rc));
@@ -591,10 +628,10 @@ int ioc_get_status(const struct iocb *iocb)
 	const struct request *req;
 
 	if (!iocb)
-		return -1;
+		return IO_INVALID;
 
 	req = container_of(iocb, const struct request, iocb);
-	return ioc_make_status(req);
+	return _ioc_get_status(req);
 }
 
 static void eat_pending_events(int fd)
@@ -608,104 +645,104 @@ static void eat_pending_events(int fd)
 
 	while ((rc = poll(&pf, 1, 0)) > 0) {
 		rc = read(fd, &val, 8);
-		log(LOG_INFO,
+		log(LOG_DEBUG,
 		    "%s: (%d) read %" PRIu64 " from fd=%d\n",
 		    __func__,rc, rc > 0 ? val : (uint64_t)0, fd);
 	}
 }
 
-#define ioc_wait_for_cond(FUNCTION, EQUAL, req, cond, mutex) \
-({							\
-	int _rv;					\
-							\
-	pthread_mutex_lock(mutex);			\
-	pthread_cleanup_push(mutex_unlock, mutex);	\
-	while ((_rv = FUNCTION(req)) == EQUAL)		\
-		pthread_cond_wait(cond, mutex);		\
-	pthread_cleanup_pop(1);				\
-	_rv;						\
-})
+static inline int ioc_wait_for_cond(unsigned int mask, struct request *req,
+				    pthread_cond_t *cond,
+				    pthread_mutex_t *mutex)
+{
+	int _rv;
 
-#define define_ioc_wait_fn(NAME, FUNCTION, EQUAL, ACTION) \
-int ioc_wait_ ## NAME(struct iocb *iocb)				\
-{									\
-	struct request *req;						\
-	uint64_t val;							\
-	int rc = 0, rv = 0;						\
-									\
-	if (!iocb) {							\
-		errno = EINVAL;						\
-		return -1;						\
-	}								\
-									\
-	req = container_of(iocb, struct request, iocb);			\
-	log(LOG_DEBUG, "%s: type = %d val=%d\n", __func__,		\
-	    req->notify_type, FUNCTION(req));				\
-									\
-	switch (req->notify_type) {					\
-	case IOC_NOTIFY_COMMON:						\
-		rv = ioc_wait_for_cond(FUNCTION, EQUAL, req,		\
-				       &req->ctx->event_cond,		\
-				       &req->ctx->event_mutex);		\
-		break;							\
-	case IOC_NOTIFY_COND:						\
-		rv = ioc_wait_for_cond(FUNCTION, EQUAL, req,		\
-				       &req->notify.cv.cond,		\
-				       &req->notify.cv.mutex);		\
-		break;							\
-	case IOC_NOTIFY_EVENTFD:					\
-		eat_pending_events(req->notify.eventfd);		\
-		while ((rv = FUNCTION(req)) == EQUAL) {			\
-			struct pollfd pf = {				\
-				.fd = req->notify.eventfd,		\
-				.events = POLLIN,			\
-			};						\
-									\
-			do {						\
-				rc = poll(&pf, 1, -1);			\
-			} while (rc == -1 && errno == EAGAIN);		\
-									\
-			if (rc == -1) {					\
-				log(LOG_ERR, "%s: poll: %m\n",		\
-				    __func__);				\
-				break;					\
-			}						\
-			rc = read(req->notify.eventfd, &val, 8);	\
-			log(LOG_INFO,					\
-			    "%s: (%d) read %"PRIu64" from fd=%d\n",	\
-			    __func__, rc, rc > 0 ? val : (uint64_t)0,	\
-			    req->notify.eventfd);			\
-			if (rc > 0) {					\
-				rc = 0;					\
-			} else {					\
-				log(LOG_ERR, "%s: read: %m\n",		\
-				    __func__);				\
-				break;					\
-			}						\
-		}							\
-		break;							\
-	default:							\
-		errno = -EINVAL;					\
-		return -1;						\
-	}								\
-									\
-	log(LOG_DEBUG, "%s: rc=%d rv=%d\n", __func__, rc, rv);		\
-	if (rc == 0) {							\
-		ACTION;							\
-		log(LOG_DEBUG, "%s: rc=%d rv=%d\n", __func__, rc, rv);	\
-	} else								\
-		log(LOG_ERR, "%s: error: %m\n", __func__);		\
-	return rc;							\
+	pthread_mutex_lock(mutex);
+	pthread_cleanup_push(mutex_unlock, mutex);
+	while (((_rv = _ioc_get_status(req)) & mask) == 0)
+		pthread_cond_wait(cond, mutex);
+	pthread_cleanup_pop(1);
+	return _rv;
 }
 
-#define __get_running(req) uatomic_read(&req->io_running)
-#define __get_status(req) uatomic_read(&req->io_status)
 
-define_ioc_wait_fn(idle, __get_running, true,
-		   uatomic_set(&req->io_status, IO_IDLE));
-define_ioc_wait_fn(complete, __get_status, IO_PENDING,
-		   return rv |
-		   uatomic_read(&req->io_running) << _IO_RUNNING_SHIFT);
+static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
+{
+	struct request *req;
+	uint64_t val;
+	int rc = 0, rv = 0;
+
+	if (!iocb) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	req = container_of(iocb, struct request, iocb);
+	log(LOG_DEBUG, "%s: type = %d val=%d\n", __func__,
+	    req->notify_type, _ioc_get_status(req));
+
+	switch (req->notify_type) {
+	case IOC_NOTIFY_COMMON:
+		rv = ioc_wait_for_cond(mask, req,
+				       &req->ctx->event_cond,
+				       &req->ctx->event_mutex);
+		break;
+	case IOC_NOTIFY_COND:
+		rv = ioc_wait_for_cond(mask, req,
+				       &req->notify.cv.cond,
+				       &req->notify.cv.mutex);
+		break;
+	case IOC_NOTIFY_EVENTFD:
+		eat_pending_events(req->notify.eventfd);
+		while (((rv = _ioc_get_status(req)) & mask) == 0) {
+			struct pollfd pf = {
+				.fd = req->notify.eventfd,
+				.events = POLLIN,
+			};
+
+			do {
+				rc = poll(&pf, 1, -1);
+			} while (rc == -1 && errno == EAGAIN);
+
+			if (rc == -1) {
+				log(LOG_ERR, "%s: poll: %m\n",
+				    __func__);
+				break;
+			}
+			rc = read(req->notify.eventfd, &val, 8);
+			log(LOG_INFO,
+			    "%s: (%d) read %"PRIu64" from fd=%d\n",
+			    __func__, rc, rc > 0 ? val : (uint64_t)0,
+			    req->notify.eventfd);
+			if (rc > 0) {
+				rc = 0;
+			} else {
+				log(LOG_ERR, "%s: read: %m\n",
+				    __func__);
+				break;
+			}
+		}
+		break;
+	default:
+		errno = -EINVAL;
+		return -1;
+	}
+
+	log(LOG_DEBUG, "%s: rc=%d rv=%d\n", __func__, rc, rv);
+	if (rc != 0)
+		log(LOG_ERR, "%s: error: %m\n", __func__);
+	else if (st)
+		*st = rv;
+	return rc;
+}
+
+int ioc_wait_done(struct iocb *iocb, int *st) {
+	return _ioc_wait(iocb, st, ~0);
+}
+
+int ioc_wait_event(struct iocb *iocb, int *st) {
+	return _ioc_wait(iocb, st, ~IO_TIMEOUT);
+}
 
 int ioc_get_eventfd(const struct iocb *iocb) {
 	const struct request *req;
@@ -815,7 +852,6 @@ struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type)
 		return NULL;
 
 	uatomic_set(&req->io_status, IO_IDLE);
-	uatomic_set(&req->io_running, false);
 
 	req->ctx = ctx;
 	/* alloc_aio_slot() increases refcount */
@@ -840,29 +876,20 @@ static bool handle_completions(int n, const struct io_event *events)
 	bool action_needed = false;
 
 	for (i = 0; i < n; i++) {
-		int sts;
 		struct request *req;
-		bool running;
 
 		req = container_of(events[i].obj, struct request,
 				   iocb);
 
-		running = uatomic_cmpxchg(&req->io_running, true, false);
-		sts = uatomic_cmpxchg(&req->io_status,
-				      IO_PENDING, IO_OK);
+		uatomic_or(&req->io_status, IO_DONE);
 
 		log(LOG_DEBUG,
 		    "%s: req %u compl: st=%s %ld %lu ofs=%lld\n",
-		    __func__, req->idx, ioc_status_name(sts),
+		    __func__, req->idx, ioc_status_name(_ioc_get_status(req)),
 		    events[i].res, events[i].res2,
 		    events[i].obj->u.c.offset);
 
-		if (running) {
-			action_needed = action_needed || event_notify(req);
-			unref_request(req);
-		} else
-			log(LOG_ERR, "%s: req %d was already completed?\n",
-			    __func__, i);
+		action_needed = action_needed || event_notify(req);
 	}
 
 	return action_needed;
@@ -874,15 +901,19 @@ static void event_thread_cleanup(void *arg)
 	io_context_t trash_ctx;
 	unsigned int i;
 
+	disarm_event_timer(ctx);
+
+	/* Drop "in-flight" refs held by the IO thread */
+	/* FIXME: is this correct? */
 	for (i = 0; i < ctx->n; i ++) {
-		if (ctx->req[i] && uatomic_read(&ctx->req[i]->io_running))
+		if (ctx->req[i] &&
+		    ioc_is_inflight(_ioc_get_status(ctx->req[i])))
 			unref_request(ctx->req[i]);
 	}
 	trash_ctx = ctx->aio_ctx;
 	ctx->aio_ctx = 0;
 
-	disarm_event_timer(ctx);
-
+	/* Tell them we're leaving */
 	pthread_mutex_lock(&ctx->event_mutex);
 	ctx->event_thread_running = false;
 	pthread_cond_broadcast(&ctx->event_cond);
@@ -978,15 +1009,15 @@ static void *event_thread(void *arg)
 					continue;
 				if (req->deadline < now + BLINK) {
 					if (uatomic_cmpxchg(&req->io_status,
-							    IO_PENDING, IO_TMO)
-					    == IO_PENDING) {
+							    IO_RUNNING, IO_TIMEOUT)
+					    == IO_RUNNING) {
 						action_needed = action_needed ||
 							event_notify(req);
 						log(LOG_DEBUG, "%s: job %u: timeout\n",
 						    __func__, req->idx);
 					}
 				} else if (req->deadline < max_wait &&
-					   uatomic_read(&req->io_running))
+					   ioc_is_inflight(_ioc_get_status(req)))
 					max_wait = req->deadline;
 			}
 		}
