@@ -1,3 +1,5 @@
+cmocka_dep = dependency('cmocka')
+
 ioctest = executable('ioctest', 'ioctest.c',
 		     include_directories : inc,
 		     link_with : ioclib,
