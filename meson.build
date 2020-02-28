@@ -7,6 +7,8 @@ project('libioc', 'c',
 
 cc = meson.get_compiler('c')
 
+add_global_arguments('-DMAX_LOGLEVEL=@0@'.format(get_option('max_loglevel')),
+		     language: 'c')
 if cc.has_argument('-Wno-clobbered')
    add_global_arguments(['-Wno-clobbered'], language: 'c')
 endif

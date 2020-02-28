@@ -11,7 +11,7 @@ static pid_t __gettid(void)
 
 #define log(lvl, format, ...)						\
 	do {								\
-		if (lvl <= loglevel) {					\
+		if (lvl <= MAX_LOGLEVEL && lvl <= loglevel) {		\
 		struct timespec __ts; pid_t __pid = gettid();		\
 		clock_gettime(CLOCK_MONOTONIC, &__ts);			\
 		fprintf(stderr, "[%ld.%06ld] (%d): " format,		\

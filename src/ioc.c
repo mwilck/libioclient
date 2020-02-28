@@ -42,8 +42,8 @@
 
 #define INVALID_SLOT ~0U
 
-static int loglevel = DEFAULT_LOGLEVEL;
-
+static int loglevel = (DEFAULT_LOGLEVEL > MAX_LOGLEVEL ?
+		       MAX_LOGLEVEL : DEFAULT_LOGLEVEL);
 
 #define container_of(ptr, type, member) ({		\
 			typeof( ((type *)0)->member ) *__mptr = (ptr);	\
@@ -1110,8 +1110,29 @@ static int start_event_thread(struct context *c)
 	return 0;
 }
 
+static void set_loglevel(void)
+{
+	static const char env_loglvl[] = "LIBIOC_LOGLEVEL";
+	const char *lvl;
+	char *end;
+	long n;
+
+	lvl = getenv(env_loglvl);
+	if (!lvl || !*lvl)
+		return;
+
+	n = strtol(lvl, &end, 10);
+	if (*end || n < LOG_EMERG || n > MAX_LOGLEVEL) {
+		log(LOG_ERR, "%s: Invalid value for %s: %s\n", __func__,
+		    env_loglvl, lvl);
+		return;
+	}
+	loglevel = n;
+}
+
 int libioc_init(void)
 {
 	(void)pthread_once(&init_once, create_exit_key);
+	set_loglevel();
 	return 0;
 }
