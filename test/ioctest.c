@@ -48,8 +48,6 @@
 /* use shared cond variable */
 //#define IOC_NOTIFY IOC_NOTIFY_COMMON
 
-static const int loglevel = LOGLEVEL;
-
 struct io_job {
 	struct context *ctx;
 	int fd;

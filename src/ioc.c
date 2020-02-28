@@ -42,8 +42,8 @@
 
 #define INVALID_SLOT ~0U
 
-static int loglevel = (DEFAULT_LOGLEVEL > MAX_LOGLEVEL ?
-		       MAX_LOGLEVEL : DEFAULT_LOGLEVEL);
+int __ioc_loglevel = (DEFAULT_LOGLEVEL > MAX_LOGLEVEL ?
+		      MAX_LOGLEVEL : DEFAULT_LOGLEVEL);
 
 #define container_of(ptr, type, member) ({		\
 			typeof( ((type *)0)->member ) *__mptr = (ptr);	\
@@ -1127,7 +1127,7 @@ static void set_loglevel(void)
 		    env_loglvl, lvl);
 		return;
 	}
-	loglevel = n;
+	__ioc_loglevel = n;
 }
 
 int libioc_init(void)
