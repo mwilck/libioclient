@@ -14,7 +14,8 @@ static pid_t __gettid(void)
 extern int __ioc_loglevel;
 #define log(lvl, format, ...)						\
 	do {								\
-		if (lvl <= MAX_LOGLEVEL && lvl <= __ioc_loglevel) {	\
+		int __lvl = (lvl);					\
+		if (__lvl <= MAX_LOGLEVEL && __lvl <= __ioc_loglevel) {	\
 		struct timespec __ts; pid_t __pid = gettid();		\
 		clock_gettime(CLOCK_MONOTONIC, &__ts);			\
 		fprintf(stderr, IOC_LOG_TIME_FMT format,		\
