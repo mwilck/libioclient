@@ -15,12 +15,13 @@
  * @IO_INVALID:	invalid iocb pointer
  */
 enum io_status {
-	IO_RUNNING = 0,
-	IO_TIMEOUT = (1 << 0),
-	IO_DONE    = (1 << 1),
-	IO_ERR     = (1 << 2),
-	IO_IDLE    = (1 << 4),
-	IO_INVALID = (1 << 8),
+	IO_RUNNING   = 0,
+	IO_TIMEOUT   = (1 <<  0),
+	IO_DONE      = (1 <<  1),
+	IO_ERR       = (1 <<  2),
+	IO_IDLE      = (1 <<  4),
+	IO_DISCARDED = (1 <<  8),
+	IO_INVALID   = (1 << 16),
 };
 
 /**
@@ -93,23 +94,34 @@ enum ioc_notify_type {
  *
  * Return: ``true`` if I/O is in flight.
  */
-static inline bool ioc_is_inflight(int st) {
+static inline bool __ioc_is_inflight(int st) {
 	return !(st & IO_DONE);
 }
 
 /**
  * ioc_new_iocb() - create an iocb object
  * @ctx: context in which to create the iocb
- * @type:     enum &ioc_notify_type value, see above.
+ * @type: enum &ioc_notify_type value, see above.
+ * @free_resources: a function that will be called when the IO completes
  *
- * This function creates the basic unit for I/O in libioclient,
- * the iocb. The data structure is the same as in libaio.
+ * This function creates the basic unit for I/O in libioclient,  the iocb.
+ * The data structure is the same as in libaio.
  * The libaio functions io_prep_pread() and io_prep_pwrite()
  * can be used to initialize &iocb objects for actual I/O.
  *
+ * free_resources() is the pointer to a cleanup function. This function will
+ * be called when ioc_put_iocb() is called, if no IO is inflight at that time,
+ * or when in-flight IO completes after calling ioc_put_iocb(). The function
+ * should release remaining dynamically allocated resources of the iocb
+ * (e.g. buffers). These buffers must not be released / freed by the calling
+ * program before the IO has completed.
+ * Pass NULL for free_resources if resource freeing at completion is not
+ * necessary or not desired.
+ *
  * Return: a new iocb in case of success, NULL otherwise.
  */
-struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type);
+struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
+			  void (*free_resources)(struct iocb*));
 
 /**
  * ioc_get_eventfd() - obtain iocb's eventfd
@@ -130,8 +142,7 @@ int ioc_get_eventfd(const struct iocb *iocb);
  * ioc_put_iocb() - discard an iocb object
  * @iocb: pointer to an iocb object
  *
- * Drop a reference to an iocb object that is no longer used, and
- * detach it from the context it was created on.
+ * Drop a reference to an iocb object that is no longer used
  * The iocb object can't be accessed any more, but will continue to exist
  * until possible in-flight IO completes. Notifications for this iocb will not
  * be sent any more after ioc_put_iocb() has been called.
@@ -159,18 +170,17 @@ void ioc_put_iocb_cleanup(void *arg);
  * submitting it again.
  * unlike io_submit(), only a single iocb can be submitted at one time.
  * The @deadline parameter specifies the timeout for this I/O request,
- * as absolute time using the ``CLOCK_MONOTONIC`` system clock.
- * Pass ``NULL`` for @deadline to set no timeout. If the timeout has
- * expired already when ioc_submit() is called, a timeout notification
- * will be signalled immediately. Immediately after calling io_submit(),
- * the iocb will be "running", and the status will be &IO_PENDING.
+ * as relative time in microseconds, using the ``CLOCK_MONOTONIC`` system clock.
+ * Pass 0 for @deadline to set no timeout.
+ * After calling io_submit(), the iocb will be "running", and the status will be
+ * &IO_PENDING.
  *
  * Return:
  * 0 on success, -1 on failure (sets errno).
  * Errno values: EINVAL: invalid iocb pointer. EBUSY: iocb is busy, call
  * ioc_reset() first. Other values: see io_submit().
  */
-int ioc_submit(struct iocb *iocb, const struct timespec *deadline);
+int ioc_submit(struct iocb *iocb, uint64_t deadline);
 
 /**
  * ioc_reset() - reset iocb status before new submission
@@ -196,6 +206,11 @@ int ioc_reset(struct iocb *iocb);
  *         IO_INVALID if an invalid iocb object is detected.
  */
 int ioc_get_status(const struct iocb *iocb);
+
+static inline bool ioc_is_inflight(const struct iocb *iocb)
+{
+	return __ioc_is_inflight(ioc_get_status(iocb));
+}
 
 /**
  * ioc_wait_event() - wait for completion or timeout

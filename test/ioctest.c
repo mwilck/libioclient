@@ -122,7 +122,7 @@ static void *io_thread(void *arg)
 	}
 	pthread_cleanup_push(free, buf);
 
-	iocb = ioc_new_iocb(ctx, IOC_NOTIFY);
+	iocb = ioc_new_iocb(ctx, IOC_NOTIFY, NULL);
 	if (!iocb) {
 		free(buf);
 		log(LOG_ERR, "%s: ioc_new_iocb: %m\n", __func__);
@@ -135,7 +135,6 @@ static void *io_thread(void *arg)
 	for (;;) {
 
 		int rc = -1;
-		struct timespec ts_start, ts_tmo;
 		int r, sts;
 		uint64_t tmo;
 
@@ -155,16 +154,13 @@ static void *io_thread(void *arg)
 			log(LOG_ERR, "%s: ioc_reset: %m\n", __func__);
 			break;
 		}
-		clock_gettime(CLOCK_MONOTONIC, &ts_start);
-		tmo = ts_to_us(&ts_start);
-		tmo += (job->tmo + (rand() % job->tmo)) / 2;
-		us_to_ts(tmo, &ts_tmo);
 
 		/* We can't free our data structures as long as I/O
 		   is in flight */
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 		for (;;) {
-			rc = ioc_submit(iocb, &ts_tmo);
+			tmo = job->tmo + (rand() % job->tmo) / 2;
+			rc = ioc_submit(iocb, tmo);
 
 			if (rc == 0) {
 				stats.requests++;
@@ -183,7 +179,7 @@ static void *io_thread(void *arg)
 		log(LOG_INFO, "%s: job %d sts=%s\n",
 		    __func__, job->n, ioc_status_name(sts));
 
-		if (ioc_is_inflight(sts)) {
+		if (__ioc_is_inflight(sts)) {
 			int64_t delta;
 			struct timespec ts_now;
 
