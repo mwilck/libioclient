@@ -23,7 +23,7 @@
 /* Number of concurrent IO threads */
 #define N_THREADS 32
 /* IO timeout until a job is considered timed out */
-#define JOB_TIMEOUT_US 10000
+#define JOB_TIMEOUT_US 20000
 /* Runtime: Time to run random start / stop of IO threads */
 #define RUNTIME_US 10000000
 /* wait time between starting IO jobs */
@@ -134,7 +134,7 @@ static void *io_thread(void *arg)
 
 		int rc = -1;
 		int r, sts;
-		uint64_t tmo;
+		uint64_t tmo, tmo_abs;
 
 		if (ioc_wait_done(iocb, NULL) == -1) {
 			log(LOG_ERR, "failed to wait for idle: %m\n");
@@ -156,8 +156,12 @@ static void *io_thread(void *arg)
 		   is in flight */
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 		for (;;) {
+			struct timespec ts;
+
 			tmo = job->tmo + (rand() % job->tmo) / 2;
+			clock_gettime(CLOCK_MONOTONIC, &ts);
 			rc = ioc_submit(iocb, tmo);
+			tmo_abs = ts_to_us(&ts) + tmo;
 
 			if (rc == 0) {
 				stats.requests++;
@@ -179,7 +183,7 @@ static void *io_thread(void *arg)
 			struct timespec ts_now;
 
 			clock_gettime(CLOCK_MONOTONIC, &ts_now);
-			delta = ts_to_us(&ts_now) - tmo;
+			delta = ts_to_us(&ts_now) - tmo_abs;
 			stats.timedout++;
 			stats.overtime += delta;
 			if (delta > stats.maxdelta)
