@@ -9,7 +9,7 @@ static pid_t __gettid(void)
 #define gettid __gettid
 #endif
 
-#define IOC_LOG_TIME_FMT "[%ld.%06ld] (%d): "
+#define IOC_LOG_TIME_FMT "[%ld.%06ld] (%d/%s): "
 
 extern int __ioc_loglevel;
 #define log(lvl, format, ...)						\
@@ -19,7 +19,7 @@ extern int __ioc_loglevel;
 		struct timespec __ts; pid_t __pid = gettid();		\
 		clock_gettime(CLOCK_MONOTONIC, &__ts);			\
 		fprintf(stderr, IOC_LOG_TIME_FMT format,		\
-			__ts.tv_sec, __ts.tv_nsec / 1000, __pid,	\
+			__ts.tv_sec, __ts.tv_nsec / 1000, __pid, __func__, \
 			##__VA_ARGS__);					\
 	}								\
 	} while (0)

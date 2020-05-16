@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <unistd.h>
 #include <time.h>
 #include <sys/types.h>
 #include <ioc.h>

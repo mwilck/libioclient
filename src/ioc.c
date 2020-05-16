@@ -238,10 +238,9 @@ static void arm_event_timer(struct aio_group *grp, uint64_t time)
 		us_to_ts(time, &start_it.it_value);
 		if (timer_settime(grp->event_timer, TIMER_ABSTIME,
 				   &start_it, NULL) != 0)
-			log(LOG_WARNING, "%s: failed to arm timer: %m\n",
-			    __func__);
+			log(LOG_WARNING, "failed to arm timer: %m\n");
 		else
-			log(LOG_DEBUG, "%s: new expiry: %ld.%06ld\n", __func__,
+			log(LOG_DEBUG, "new expiry: %ld.%06ld\n",
 			    start_it.it_value.tv_sec,
 			    start_it.it_value.tv_nsec / 1000);
 	}
@@ -260,10 +259,9 @@ static void disarm_event_timer(struct aio_group *grp)
 	if (grp->timer_fires < UINT64_MAX) {
 		grp->timer_fires = UINT64_MAX;
 		if (timer_settime(grp->event_timer, 0, &stop_it, NULL) != 0)
-		log(LOG_WARNING, "%s: failed to disarm timer: %m\n",
-		    __func__);
+			log(LOG_WARNING, "failed to disarm timer: %m\n");
 	} else
-		log(LOG_DEBUG, "%s: disarmed\n", __func__);
+		log(LOG_DEBUG, "disarmed\n");
 	pthread_cleanup_pop(1);
 }
 
@@ -284,7 +282,7 @@ static void free_request(struct request *req)
 	int status =  _ioc_get_status(req);
 
 	log(__ioc_is_inflight(status) ? LOG_ERR : LOG_DEBUG,
-	    "%s: freeing request %u, status %s\n", __func__,
+	    "freeing request %u, status %s\n",
 	    req->idx, ioc_status_name(status));
 
 	switch (req->notify_type) {
@@ -303,7 +301,7 @@ static void free_request(struct request *req)
 		release_aio_slot(req->ctx, req->idx);
 
 	if (status & IO_DISCARDED && req->free_resources) {
-		log(LOG_INFO, "%s: releasing resources\n", __func__);
+		log(LOG_INFO, "releasing resources\n");
 		req->free_resources(&req->iocb);
 	}
 	free(req);
@@ -399,9 +397,9 @@ static void discard_aio_group(struct aio_group *grp)
 		et = grp->event_thread;
 		log(LOG_DEBUG, "cancel event thread %lu\n", et);
 		rc = pthread_kill(et, SIG_EVSTOP);
-		log(LOG_DEBUG, "%s: pthread_kill -> %d\n", __func__, rc);
+		log(LOG_DEBUG, "pthread_kill -> %d\n", rc);
 		rc = pthread_cancel(et);
-		log(LOG_DEBUG, "%s: pthread_cancel -> %d\n", __func__, rc);
+		log(LOG_DEBUG, "pthread_cancel -> %d\n", rc);
 		while (grp->event_thread_running)
 			pthread_cond_wait(&grp->event_cond, &grp->event_mutex);
 	}
@@ -425,7 +423,7 @@ static void event_timer_notify(union sigval arg)
 	   ctx->timer_fires = UINT64_MAX;
 	   pthread_mutex_unlock(&ctx->timer_mutex); */
 	pthread_kill(grp->event_thread, SIG_EVUPDATE);
-	log(LOG_DEBUG, "%s: fired\n", __func__);
+	log(LOG_DEBUG, "fired\n");
 }
 
 static int start_event_thread(struct aio_group *grp);
@@ -449,7 +447,7 @@ static int ioc_init_aio_group(struct aio_group *grp)
 
 	se.sigev_value.sival_ptr = grp;
 	if (timer_create(CLOCK_MONOTONIC, &se, &grp->event_timer) != 0) {
-		log(LOG_ERR, "%s: timer_create: %m\n", __func__);
+		log(LOG_ERR, "timer_create: %m\n");
 		goto out_rwlock;
 	}
 
@@ -495,12 +493,12 @@ static int __add_aio_group(struct context *c, struct aio_group *new_grp)
 		new_grp->index = c->n_groups;
 		new_grp->ctx = c;
 		c->group[c->n_groups] = *new_grp;
-		log(LOG_DEBUG, "%s: added new aio_group %u\n", __func__,
+		log(LOG_DEBUG, "added new aio_group %u\n",
 		    c->n_groups);
 		c->n_groups++;
 		return 0;
 	} else {
-		log(LOG_ERR, "%s: failed to add group %u\n", __func__,
+		log(LOG_ERR, "failed to add group %u\n",
 		    c->n_groups);
 		return -1;
 	}
@@ -570,14 +568,13 @@ static void release_aio_slot(struct context *ctx, unsigned int n)
 	pthread_rwlock_unlock(&ctx->group_lock);
 
 	if (grp == NULL) {
-		log(LOG_ERR, "%s: request to unref invalid entry %u\n",
-		    __func__, n);
+		log(LOG_ERR, "request to unref invalid entry %u\n", n);
 		return;
 	}
 
 	unlink_request(&ctx->group[group_idx], req_idx);
 
-	log(LOG_DEBUG, "%s: released %u\n", __func__, n);
+	log(LOG_DEBUG, "released %u\n", n);
 	unref_context(ctx);
 }
 
@@ -632,7 +629,7 @@ static unsigned int alloc_aio_slot(struct context *c, struct request *req)
 	}
 	pthread_cleanup_pop(1);
 	if (n != INVALID_SLOT) {
-		log(LOG_DEBUG, "%s: slot %u allocated\n", __func__, n);
+		log(LOG_DEBUG, "slot %u allocated\n", n);
 		return n;
 	}
 
@@ -660,10 +657,10 @@ static unsigned int alloc_aio_slot(struct context *c, struct request *req)
 	}
 	pthread_cleanup_pop(1);
 	if (n == INVALID_SLOT) {
-		log(LOG_ERR, "%s: failed to allocate slot\n", __func__);
+		log(LOG_ERR, "failed to allocate slot\n");
 		unref_context(c);
 	} else
-		log(LOG_DEBUG, "%s: slot %u allocated\n", __func__, n);
+		log(LOG_DEBUG, "slot %u allocated\n", n);
 	return n;
 }
 
@@ -727,8 +724,7 @@ int ioc_submit(struct iocb *iocb, uint64_t deadline)
 
 	if (rc != 1) {
 		uatomic_set(&req->io_status, IO_ERR);
-		log(LOG_ERR, "%s: io_submit (%u): %s\n",
-		    __func__, group_idx, strerror(-rc));
+		log(LOG_ERR, "io_submit (%u): %s\n", group_idx, strerror(-rc));
 		ret = -1;
 		errno = -rc;
 	} else {
@@ -736,8 +732,7 @@ int ioc_submit(struct iocb *iocb, uint64_t deadline)
 		ref_request(req);
 		uatomic_set(&req->io_status, IO_RUNNING);
 		arm_event_timer(&ctx->group[group_idx], req->deadline);
-		log(LOG_DEBUG, "%s: io submitted for job %u\n",
-			      __func__, req->idx);
+		log(LOG_DEBUG, "io submitted for job %u\n", req->idx);
 		ret = 0;
 	}
 
@@ -767,8 +762,8 @@ static void eat_pending_events(int fd)
 	while ((rc = poll(&pf, 1, 0)) > 0) {
 		rc = read(fd, &val, 8);
 		log(LOG_DEBUG,
-		    "%s: (%d) read %" PRIu64 " from fd=%d\n",
-		    __func__,rc, rc > 0 ? val : (uint64_t)0, fd);
+		    "(%d) read %" PRIu64 " from fd=%d\n", rc,
+		    rc > 0 ? val : (uint64_t)0, fd);
 	}
 }
 
@@ -801,7 +796,7 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 	}
 
 	req = container_of(iocb, struct request, iocb);
-	log(LOG_DEBUG, "%s: type = %d val=%d mask=%08x\n", __func__,
+	log(LOG_DEBUG, "type = %d val=%d mask=%08x\n",
 	    req->notify_type, _ioc_get_status(req), mask);
 
 	/* Caller must hold a ref to the request. It is illegal to wait
@@ -832,22 +827,20 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 			} while (rc == -1 && errno == EAGAIN);
 
 			if (rc == -1) {
-				log(LOG_ERR, "%s: poll: %m\n",
-				    __func__);
+				log(LOG_ERR, "poll: %m\n");
 				break;
 			}
-			log(LOG_DEBUG + 1, "%s sts=%x=%s\n", __func__, rv,
+			log(LOG_DEBUG + 1, "sts=%x=%s\n", rv,
 			    ioc_status_name(rv));
 			rc = read(req->notify.eventfd, &val, 8);
 			log(LOG_DEBUG,
-			    "%s: (%d) read %"PRIu64" from fd=%d\n",
-			    __func__, rc, rc > 0 ? val : (uint64_t)0,
+			    "(%d) read %"PRIu64" from fd=%d\n",
+			    rc, rc > 0 ? val : (uint64_t)0,
 			    req->notify.eventfd);
 			if (rc > 0) {
 				rc = 0;
 			} else {
-				log(LOG_ERR, "%s: read: %m\n",
-				    __func__);
+				log(LOG_ERR, "read: %m\n");
 				break;
 			}
 		}
@@ -857,9 +850,9 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 		return -1;
 	}
 
-	log(LOG_DEBUG, "%s: rc=%d rv=%d\n", __func__, rc, rv);
+	log(LOG_DEBUG, "rc=%d rv=%d\n", rc, rv);
 	if (rc != 0)
-		log(LOG_ERR, "%s: error: %m\n", __func__);
+		log(LOG_ERR, "error: %m\n");
 	else if (st)
 		*st = rv;
 	return rc;
@@ -919,15 +912,14 @@ static int ioc_set_notify(struct iocb *iocb, unsigned int type)
 		rv = pthread_cond_init(&req->notify.cv.cond, NULL);
 		if (rv != 0) {
 			log(LOG_ERR,
-			    "%s: error initializing condition variable",
-			    __func__);
+			    "error initializing condition variable");
 			errno = rv;
 			return -1;
 		}
 		rv = pthread_mutex_init(&req->notify.cv.mutex, NULL);
 		if (rv != 0) {
 			log(LOG_ERR,
-			    "%s: error initializing mutex", __func__);
+			    "error initializing mutex");
 			pthread_cond_destroy(&req->notify.cv.cond);
 			errno = rv;
 			return -1;
@@ -936,17 +928,17 @@ static int ioc_set_notify(struct iocb *iocb, unsigned int type)
 	case IOC_NOTIFY_EVENTFD:
 		req->notify.eventfd = eventfd(0, 0);
 		if (req->notify.eventfd == -1) {
-			log(LOG_ERR, "%s: eventfd: %m\n", __func__);
+			log(LOG_ERR, "eventfd: %m\n");
 			return -1;
 		}
-		log(LOG_DEBUG, "%s: job %d fd=%d\n", __func__,
+		log(LOG_DEBUG, "job %d fd=%d\n",
 		    req->idx, req->notify.eventfd);
 		break;
 	case IOC_NOTIFY_NONE:
 	case IOC_NOTIFY_COMMON:
 		break;
 	default:
-		log(LOG_ERR, "%s: invalid notification type: %u\n", __func__,
+		log(LOG_ERR, "invalid notification type: %u\n",
 		    type);
 		errno = EINVAL;
 		return -1;
@@ -974,7 +966,7 @@ struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
 	/* alloc_aio_slot() increases refcount */
 	n = alloc_aio_slot(ctx, req);
 	if (n == INVALID_SLOT) {
-		log(LOG_ERR, "%s: failed to allocate slot\n", __func__);
+		log(LOG_ERR, "failed to allocate slot\n");
 		errno = ERANGE;
 		free(req);
 		return NULL;
@@ -992,8 +984,8 @@ static bool event_notify(struct request *req)
 	switch (req->notify_type) {
 	case IOC_NOTIFY_EVENTFD:
 		write(req->notify.eventfd, &val, sizeof(val));
-		log(LOG_DEBUG, "%s: wrote %"PRIu64" to fd=%d\n",
-		    __func__, val, req->notify.eventfd);
+		log(LOG_DEBUG, "wrote %"PRIu64" to fd=%d\n",
+		    val, req->notify.eventfd);
 		val++;
 		break;
 	case IOC_NOTIFY_COND:
@@ -1023,8 +1015,8 @@ static bool handle_completions(int n, const struct io_event *events)
 		status = uatomic_add_return(&req->io_status, IO_DONE);
 
 		log(LOG_DEBUG,
-		    "%s: req %u compl: st=%s %ld %lu ofs=%lld\n",
-		    __func__, req->idx, ioc_status_name(status),
+		    "req %u compl: st=%s %ld %lu ofs=%lld\n",
+		    req->idx, ioc_status_name(status),
 		    events[i].res, events[i].res2,
 		    events[i].obj->u.c.offset);
 
@@ -1076,8 +1068,8 @@ static void event_thread_cleanup(void *arg)
 	pthread_cond_broadcast(&grp->event_cond);
 	pthread_mutex_unlock(&grp->event_mutex);
 
-	log(LOG_NOTICE, "%s: detaching with %u requests in flight\n",
-	    __func__, n_inflight);
+	log(LOG_NOTICE, "detaching with %u requests in flight\n",
+	    n_inflight);
 
 	pthread_detach(pthread_self());
 	/* This may block */
@@ -1130,8 +1122,7 @@ static bool event_thread_action(struct aio_group *grp, sigset_t *mask,
 				action_needed = action_needed ||
 					event_notify(req);
 				log(LOG_DEBUG,
-				    "%s: job %u: timed out, sts=%s\n",
-				    __func__, req->idx,
+				    "job %u: timed out, sts=%s\n", req->idx,
 				    ioc_status_name(_ioc_get_status(req)));
 			}
 		} else if (req->deadline < max_wait && req_is_inflight(req))
@@ -1141,7 +1132,7 @@ static bool event_thread_action(struct aio_group *grp, sigset_t *mask,
 
 	if (action_needed) {
 		wakeup_waiters(grp);
-		log(LOG_DEBUG, "%s: tmo: %" PRIu64 "\n", __func__, now);
+		log(LOG_DEBUG, "tmo: %" PRIu64 "\n", now);
 	}
 
 	arm_event_timer(grp, max_wait + TIMER_EXTRA_US);
@@ -1149,8 +1140,7 @@ static bool event_thread_action(struct aio_group *grp, sigset_t *mask,
 	max_wait -= now;
 	us_to_ts(max_wait, &ts);
 
-	log(LOG_DEBUG, "%s: timeout = %" PRIu64 "us\n",
-	    __func__, max_wait);
+	log(LOG_DEBUG, "timeout = %" PRIu64 "us\n", max_wait);
 
 	pthread_testcancel();
 
@@ -1161,16 +1151,13 @@ static bool event_thread_action(struct aio_group *grp, sigset_t *mask,
 
 	if (rc == -EINTR) {
 		if (uatomic_read(_exit)) {
-			log(LOG_NOTICE, "%s: exit signal received\n",
-			    __func__);
+			log(LOG_NOTICE, "exit signal received\n");
 			must_quit = true;
 		} else {
-			log(LOG_DEBUG, "%s: update signal received\n",
-			    __func__);
+			log(LOG_DEBUG, "update signal received\n");
 		}
 	} else if (rc < 0) {
-		log(LOG_ERR, "%s: io_pgetevents: retcode = %d\n",
-		    __func__, rc);
+		log(LOG_ERR, "io_pgetevents: retcode = %d\n", rc);
 		must_quit = true;
 	}
 
@@ -1195,17 +1182,17 @@ static void *event_thread(void *arg)
 
 	sigfillset(&mask);
 	if (pthread_sigmask(SIG_SETMASK, &mask, NULL) != 0) {
-		log(LOG_ERR, "%s: pthread_sigmask: %m\n", __func__);
+		log(LOG_ERR, "pthread_sigmask: %m\n");
 		return NULL;
 	}
 
 	pthread_setspecific(exit_key, &_exit);
 	if (sigaction(SIG_EVSTOP, &stop_sa, NULL) != 0) {
-		log(LOG_ERR, "%s: sigaction STOP: %m\n", __func__);
+		log(LOG_ERR, "sigaction STOP: %m\n");
 		return NULL;
 	}
 	if (sigaction(SIG_EVUPDATE, &upd_sa, NULL) != 0)
-		log(LOG_ERR, "%s: sigaction UPDATE: %m\n", __func__);
+		log(LOG_ERR, "sigaction UPDATE: %m\n");
 
 	sigdelset(&mask, SIG_EVSTOP);
 	sigdelset(&mask, SIG_EVUPDATE);
@@ -1219,7 +1206,7 @@ static void *event_thread(void *arg)
 	pthread_cond_broadcast(&grp->event_cond);
 	pthread_mutex_unlock(&grp->event_mutex);
 
-	log(LOG_INFO, "%s: starting\n", __func__);
+	log(LOG_INFO, "starting\n");
 
 	while (!event_thread_action(grp, &mask, &_exit));
 
@@ -1243,9 +1230,9 @@ static int start_event_thread(struct aio_group *grp)
 	pthread_cleanup_pop(1);
 
 	if (rc == 0)
-		log(LOG_DEBUG, "%s: created event thread %ld\n", __func__, pt);
+		log(LOG_DEBUG, "created event thread %ld\n", pt);
 	else
-		log(LOG_ERR, "%s: pthread_create: %m", __func__);
+		log(LOG_ERR, "pthread_create: %m");
 	return rc;
 }
 
@@ -1262,7 +1249,7 @@ static void set_loglevel(void)
 
 	n = strtol(lvl, &end, 10);
 	if (*end || n < LOG_EMERG || n > MAX_LOGLEVEL) {
-		log(LOG_ERR, "%s: Invalid value for %s: %s\n", __func__,
+		log(LOG_ERR, "Invalid value for %s: %s\n",
 		    env_loglvl, lvl);
 		return;
 	}

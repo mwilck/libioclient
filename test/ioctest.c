@@ -91,7 +91,7 @@ static void *io_thread(void *arg)
 	pthread_cleanup_push(print_stats, &stats);
 
 	if (fstat(job->fd, &st) != 0) {
-		log(LOG_ERR, "%s: fstat: %m", __func__);
+		log(LOG_ERR, "fstat: %m");
 		return NULL;
 	}
 
@@ -101,23 +101,21 @@ static void *io_thread(void *arg)
 		int rc = ioctl(job->fd, BLKGETSIZE64, &arg);
 
 		if (rc < 0 || arg <= 0) {
-			log(LOG_ERR, "%s: unable to determine size: %m\n",
-			    __func__);
+			log(LOG_ERR, "unable to determine size: %m\n");
 			return NULL;
 		} else
 			size = arg;
 	}
 
 	if (IOSIZE >= size) {
-		log(LOG_ERR, "%s: devices size %ld blocks is too small\n",
-		    __func__, size);
+		log(LOG_ERR, "devices size %ld blocks is too small\n", size);
 		return NULL;
 	}
 
 	max_pg = (size - IOSIZE) / ALIGN;
 
 	if (posix_memalign((void**)&buf, ALIGN, IOSIZE) != 0) {
-		log(LOG_ERR, "%s: posix_memalign: %m\n", __func__);
+		log(LOG_ERR, "posix_memalign: %m\n");
 		return NULL;
 	}
 	pthread_cleanup_push(free, buf);
@@ -125,7 +123,7 @@ static void *io_thread(void *arg)
 	iocb = ioc_new_iocb(ctx, IOC_NOTIFY, NULL);
 	if (!iocb) {
 		free(buf);
-		log(LOG_ERR, "%s: ioc_new_iocb: %m\n", __func__);
+		log(LOG_ERR, "ioc_new_iocb: %m\n");
 		return NULL;
 	}
 	pthread_cleanup_push(ioc_put_iocb_cleanup, iocb);
@@ -139,8 +137,7 @@ static void *io_thread(void *arg)
 		uint64_t tmo;
 
 		if (ioc_wait_done(iocb, NULL) == -1) {
-			log(LOG_ERR, "%s: failed to wait for idle: %m\n",
-			    __func__);
+			log(LOG_ERR, "failed to wait for idle: %m\n");
 			break;
 		}
 		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -151,7 +148,7 @@ static void *io_thread(void *arg)
 
 	repeat:
 		if (ioc_reset(iocb) == -1) {
-			log(LOG_ERR, "%s: ioc_reset: %m\n", __func__);
+			log(LOG_ERR, "ioc_reset: %m\n");
 			break;
 		}
 
@@ -171,13 +168,11 @@ static void *io_thread(void *arg)
 
 		r = ioc_wait_event(iocb, &sts);
 		if (r == -1) {
-			log(LOG_ERR, "%s: failed to wait for completion: %m\n",
-			    __func__);
+			log(LOG_ERR, "failed to wait for completion: %m\n");
 			break;
 		}
 
-		log(LOG_INFO, "%s: job %d sts=%s\n",
-		    __func__, job->n, ioc_status_name(sts));
+		log(LOG_INFO, "job %d sts=%s\n", job->n, ioc_status_name(sts));
 
 		if (__ioc_is_inflight(sts)) {
 			int64_t delta;
@@ -190,8 +185,8 @@ static void *io_thread(void *arg)
 			if (delta > stats.maxdelta)
 				stats.maxdelta = delta;
 			if (delta < 0) {
-				log(LOG_NOTICE, "%s: %s, now %" PRIu64 ", deadline %" PRIu64 ", delta=%" PRId64 "\n",
-				    __func__, ioc_status_name(sts), ts_to_us(&ts_now),
+				log(LOG_NOTICE, "%s, now %" PRIu64 ", deadline %" PRIu64 ", delta=%" PRId64 "\n",
+				    ioc_status_name(sts), ts_to_us(&ts_now),
 				    tmo, delta);
 			}
 		} else if (sts == IO_DONE) {
@@ -227,10 +222,10 @@ static pthread_t start_thread(struct context *ctx, int fd, int n)
 	job->tmo = JOB_TIMEOUT_US;
 
 	if (pthread_create(&pt, NULL, io_thread, job) != 0) {
-		log(LOG_ERR, "%s: pthread_create: %m\n", __func__);
+		log(LOG_ERR, "pthread_create: %m\n");
 		return 0;
 	}
-	log(LOG_DEBUG, "%s: created thread %d\n", __func__, n);
+	log(LOG_DEBUG, "created thread %d\n", n);
 	return pt;
 }
 
@@ -256,11 +251,11 @@ int main(int argc, const char *const argv[])
 
 	fd = open(argv[1], O_RDONLY|O_DIRECT);
 	if (fd == -1) {
-		log(LOG_ERR, "%s: error opening %s: %m\n", __func__, argv[1]);
+		log(LOG_ERR, "error opening %s: %m\n", argv[1]);
 		goto out_destroy;
 	}
 
-	log(LOG_NOTICE, "%s: startup\n", __func__);
+	log(LOG_NOTICE, "startup\n");
 	for(i = 0; i < N_THREADS; i++) {
 		threads[i] = start_thread(ctx, fd, i);
 		usleep(WAIT_RAMPUP_US);
@@ -269,7 +264,7 @@ int main(int argc, const char *const argv[])
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	stop = ts_to_us(&ts) + RUNTIME_US;
 
-	log(LOG_NOTICE, "%s: random walk\n", __func__);
+	log(LOG_NOTICE, "random walk\n");
 	for(;;) {
 
 		for (i = 0; i < N_THREADS; i++) {
@@ -278,15 +273,13 @@ int main(int argc, const char *const argv[])
 				continue;
 			if (pthread_equal(threads[i], 0)) {
 				log(LOG_INFO,
-				    "%s: random start io thread %d\n",
-				    __func__, i);
+				    "random start io thread %d\n", i);
 				threads[i] = start_thread(ctx, fd, i);
 			} else {
 				void *res;
 
 				log(LOG_INFO,
-				    "%s: random cancel io thread %d\n",
-				    __func__, i);
+				    "random cancel io thread %d\n", i);
 				pthread_cancel(threads[i]);
 				pthread_join(threads[i], &res);
 				threads[i] = 0;
@@ -297,11 +290,10 @@ int main(int argc, const char *const argv[])
 			break;
 	}
 
-	log(LOG_NOTICE, "%s: shutdown\n", __func__);
+	log(LOG_NOTICE, "shutdown\n");
 	for(i = 0; i < N_THREADS; i++) {
 		if (!pthread_equal(threads[i], 0)) {
-			log(LOG_INFO, "%s: cancel io thread %d\n",
-			    __func__, i);
+			log(LOG_INFO, "cancel io thread %d\n", i);
 			pthread_cancel(threads[i]);
 		}
 	}
@@ -309,8 +301,7 @@ int main(int argc, const char *const argv[])
 	for(i = 0; i < N_THREADS; i++) {
 		if (!pthread_equal(threads[i], 0)) {
 			void *res;
-			log(LOG_DEBUG, "%s: join io thread %d\n",
-			    __func__, i);
+			log(LOG_DEBUG, "join io thread %d\n", i);
 			pthread_join(threads[i], &res);
 		}
 	}
@@ -319,7 +310,7 @@ int main(int argc, const char *const argv[])
 	rc = 0;
 out_destroy:
 	ioc_destroy_context(ctx);
-	log(LOG_NOTICE, "%s: done\n", __func__);
+	log(LOG_NOTICE, "done\n");
 	//  muntrace();
 	return rc;
 }
