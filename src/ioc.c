@@ -145,7 +145,7 @@ struct context {
 	unsigned int refcount;
 	unsigned int n_groups;
 	pthread_rwlock_t group_lock;
-	struct aio_group *group;
+	struct aio_group **group;
 };
 
 static inline struct context *context_from_group(struct aio_group *grp)
@@ -193,6 +193,7 @@ static void __destroy_aio_group(struct aio_group *grp)
 	pthread_mutex_destroy(&grp->event_mutex);
 	pthread_rwlock_destroy(&grp->req_lock);
 	free(grp->req);
+	free(grp);
 }
 
 static void discard_aio_group(struct aio_group *grp);
@@ -204,8 +205,10 @@ static void __destroy_context(struct context *c)
 	/* FIXME: last ref has just been dropped, do we need locking? */
 	pthread_rwlock_wrlock(&c->group_lock);
 	pthread_cleanup_push(rwlock_unlock, &c->group_lock);
-	for (i = c->n_groups; i; i--)
-		discard_aio_group(&c->group[i - 1]);
+	for (i = c->n_groups; i; i--) {
+		discard_aio_group(c->group[i - 1]);
+		c->group[i - 1] = NULL;
+	}
 	pthread_cleanup_pop(1);
 	pthread_rwlock_destroy(&c->group_lock);
 	free(c->group);
@@ -434,10 +437,16 @@ static int ioc_init_aio_group(struct aio_group *grp)
 		.sigev_notify = SIGEV_THREAD,
 		.sigev_notify_function = event_timer_notify,
 	};
+	int rc;
 
 	memset(grp, 0, sizeof(*grp));
-	if (pthread_mutex_init(&grp->event_mutex, NULL))
+	rc = io_setup(N_REQUESTS, &grp->aio_ctx); 
+	if (rc < 0) {
+		log(LOG_ERR, "io_setup: %s", strerror(-rc));
 		goto out;
+	}
+	if (pthread_mutex_init(&grp->event_mutex, NULL))
+		goto out_aio;
 
 	if (pthread_cond_init(&grp->event_cond, NULL))
 		goto out_mutex;
@@ -461,13 +470,10 @@ static int ioc_init_aio_group(struct aio_group *grp)
 	grp->nr_reqs = 0;
 	disarm_event_timer(grp);
 
-	if (start_event_thread(grp) != 0)
-		goto out_free_req;
-
 	return 0;
 
-out_free_req:
-	free(grp->req);
+out_aio:
+	io_destroy(grp->aio_ctx);
 out_timer_mutex:
 	pthread_mutex_destroy(&grp->timer_mutex);
 out_timer:
@@ -484,7 +490,7 @@ out:
 
 static int __add_aio_group(struct context *c, struct aio_group *new_grp)
 {
-	struct aio_group *tmp;
+	struct aio_group **tmp;
 	unsigned int wanted = c->n_groups + 1;
 
 	tmp = realloc(c->group, wanted * sizeof(*c->group));
@@ -492,33 +498,37 @@ static int __add_aio_group(struct context *c, struct aio_group *new_grp)
 		c->group = tmp;
 		new_grp->index = c->n_groups;
 		new_grp->ctx = c;
-		c->group[c->n_groups] = *new_grp;
-		log(LOG_DEBUG, "added new aio_group %u\n",
-		    c->n_groups);
-		c->n_groups++;
-		return 0;
-	} else {
-		log(LOG_ERR, "failed to add group %u\n",
-		    c->n_groups);
-		return -1;
+		if (start_event_thread(new_grp) == 0) {
+			c->group[c->n_groups] = new_grp;
+			log(LOG_DEBUG, "added new aio_group %u\n",
+			    c->n_groups);
+			c->n_groups++;
+			return 0;
+		}
 	}
+	log(LOG_ERR, "failed to add group %u\n",
+	    c->n_groups);
+	return -1;
 }
 
-static int add_aio_group(struct context *c, struct aio_group *new_grp)
+static  struct aio_group *add_aio_grp(struct context *c)
 {
-	int ret;
+	struct aio_group *grp = calloc(1, sizeof(*grp));
 
-	pthread_rwlock_wrlock(&c->group_lock);
-	pthread_cleanup_push(rwlock_unlock, &c->group_lock);
-	ret = __add_aio_group(c, new_grp);
-	pthread_cleanup_pop(1);
-	return ret;
+	if (!grp)
+		return NULL;
+
+	if (ioc_init_aio_group(grp) == 0 && __add_aio_group(c, grp) == 0)
+		return grp;
+	else {
+		free(grp);
+		return NULL;
+	}
 }
 
 struct context *ioc_create_context(void)
 {
 	struct context *c;
-	struct aio_group grp;
 
 	c = calloc(1, sizeof(struct context));
 	if (c == NULL)
@@ -529,19 +539,9 @@ struct context *ioc_create_context(void)
 
 	c->n_groups = 0;
 
-	if (ioc_init_aio_group(&grp) != 0)
-		goto out_free_group;
-	if (add_aio_group(c, &grp) != 0)
-		goto out_destroy_grp;
-
 	ref_context(c);
 	return c;
 
-out_destroy_grp:
-	discard_aio_group(&grp);
-out_free_group:
-	pthread_rwlock_destroy(&c->group_lock);
-	free(c->group);
 out_free:
 	free(c);
 	return NULL;
@@ -564,7 +564,7 @@ static void release_aio_slot(struct context *ctx, unsigned int n)
 	group_idx = group_index(n, &req_idx);
 	pthread_rwlock_rdlock(&ctx->group_lock);
 	if (group_idx < ctx->n_groups)
-		grp = &ctx->group[group_idx];
+		grp = ctx->group[group_idx];
 	pthread_rwlock_unlock(&ctx->group_lock);
 
 	if (grp == NULL) {
@@ -572,7 +572,7 @@ static void release_aio_slot(struct context *ctx, unsigned int n)
 		return;
 	}
 
-	unlink_request(&ctx->group[group_idx], req_idx);
+	unlink_request(ctx->group[group_idx], req_idx);
 
 	log(LOG_DEBUG, "released %u\n", n);
 	unref_context(ctx);
@@ -615,7 +615,7 @@ static unsigned int alloc_aio_slot(struct context *c, struct request *req)
 	pthread_rwlock_rdlock(&c->group_lock);
 	pthread_cleanup_push(rwlock_unlock, &c->group_lock);
 	for (i = 0; i < c->n_groups; i++) {
-		struct aio_group *grp = &c->group[i];
+		struct aio_group *grp = c->group[i];
 		unsigned int idx;
 
 		if (uatomic_read(&grp->nr_reqs) >= N_REQUESTS)
@@ -637,7 +637,7 @@ static unsigned int alloc_aio_slot(struct context *c, struct request *req)
 	pthread_cleanup_push(rwlock_unlock, &c->group_lock);
 	/* i was c->nr_groups before we released and re-acquired the lock */
 	if (i < c->n_groups) {
-		struct aio_group *grp = &c->group[i];
+		struct aio_group *grp = c->group[i];
 		unsigned int idx;
 
 		if (uatomic_read(&grp->nr_reqs) < N_REQUESTS) {
@@ -647,13 +647,12 @@ static unsigned int alloc_aio_slot(struct context *c, struct request *req)
 		}
 	}
 	if (n == INVALID_SLOT) {
-		struct aio_group grp;
+		struct aio_group *grp = add_aio_grp(c);
 
-		if (ioc_init_aio_group(&grp) == 0 &&
-		    __add_aio_group(c, &grp) == 0) {
-			link_request(&c->group[c->n_groups - 1], 0, req);
-			n = (c->n_groups - 1) * N_REQUESTS;
-		};
+		if (grp) {
+			link_request(grp, 0, req);
+			n = grp->index * N_REQUESTS;
+		}
 	}
 	pthread_cleanup_pop(1);
 	if (n == INVALID_SLOT) {
@@ -720,7 +719,7 @@ int ioc_submit(struct iocb *iocb, uint64_t deadline)
 	/* pthread_rwlock_rdlock(&ctx->ctx_lock);
 	   pthread_cleanup_push(rwlock_unlock, &ctx->ctx_lock); */
 
-	rc = io_submit(ctx->group[group_idx].aio_ctx, 1, &iocb);
+	rc = io_submit(ctx->group[group_idx]->aio_ctx, 1, &iocb);
 
 	if (rc != 1) {
 		uatomic_set(&req->io_status, IO_ERR);
@@ -731,8 +730,12 @@ int ioc_submit(struct iocb *iocb, uint64_t deadline)
 		/* This ref is held by "the kernel" and dropped when the IO completes */
 		ref_request(req);
 		uatomic_set(&req->io_status, IO_RUNNING);
-		arm_event_timer(&ctx->group[group_idx], req->deadline);
-		log(LOG_DEBUG, "io submitted for job %u\n", req->idx);
+		arm_event_timer(ctx->group[group_idx], req->deadline);
+		if (deadline)
+			log(LOG_DEBUG, "req %u timeout %" PRIu64 "us -> %" PRIu64 "\n",
+			    req->idx, deadline, req->deadline);
+		else
+			log(LOG_DEBUG, "req %u no timeout\n", req->idx);
 		ret = 0;
 	}
 
@@ -804,7 +807,7 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 	switch (req->notify_type) {
 	case IOC_NOTIFY_COMMON:
 		ig = group_index(req->idx, &ir);
-		grp = &req->ctx->group[ig];
+		grp = req->ctx->group[ig];
 		rv = ioc_wait_for_cond(mask, req,
 				       &grp->event_cond,
 				       &grp->event_mutex);
@@ -957,6 +960,7 @@ struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
 	if (!req)
 		return NULL;
 
+	ref_request(req);
 	uatomic_set(&req->io_status, IO_IDLE);
 
 	if (ioc_set_notify(&req->iocb, type) != 0) {
@@ -1122,7 +1126,7 @@ static bool event_thread_action(struct aio_group *grp, sigset_t *mask,
 				action_needed = action_needed ||
 					event_notify(req);
 				log(LOG_DEBUG,
-				    "job %u: timed out, sts=%s\n", req->idx,
+				    "req %u: timed out, sts=%s\n", req->idx,
 				    ioc_status_name(_ioc_get_status(req)));
 			}
 		} else if (req->deadline < max_wait && req_is_inflight(req))
