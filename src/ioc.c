@@ -118,6 +118,15 @@ static inline int _ioc_get_status(const struct request *req)
 	return uatomic_read(&req->io_status);
 }
 
+static inline bool __ioc_is_inflight(int st) {
+	return !(st & IO_DONE);
+}
+
+bool ioc_is_inflight(const struct iocb *iocb)
+{
+	return __ioc_is_inflight(ioc_get_status(iocb));
+}
+
 static inline bool req_is_inflight(const struct request *req)
 {
 	return __ioc_is_inflight(_ioc_get_status(req));

@@ -89,16 +89,6 @@ enum ioc_notify_type {
 };
 
 /**
- * ioc_is_inflight() - check if IO is in flight for iocb
- * @st: return value from ioc_get_status() or ioc_wait_complete()
- *
- * Return: ``true`` if I/O is in flight.
- */
-static inline bool __ioc_is_inflight(int st) {
-	return !(st & IO_DONE);
-}
-
-/**
  * ioc_new_iocb() - create an iocb object
  * @ctx: context in which to create the iocb
  * @type: enum &ioc_notify_type value, see above.
@@ -207,10 +197,13 @@ int ioc_reset(struct iocb *iocb);
  */
 int ioc_get_status(const struct iocb *iocb);
 
-static inline bool ioc_is_inflight(const struct iocb *iocb)
-{
-	return __ioc_is_inflight(ioc_get_status(iocb));
-}
+/**
+ * ioc_is_inflight() - check if IO is in flight for iocb
+ * @st: return value from ioc_get_status() or ioc_wait_complete()
+ *
+ * Return: ``true`` if I/O is in flight.
+ */
+bool ioc_is_inflight(const struct iocb *iocb);
 
 /**
  * ioc_wait_event() - wait for completion or timeout
