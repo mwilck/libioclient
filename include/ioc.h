@@ -207,15 +207,13 @@ int ioc_wait_event(struct iocb *iocb);
  * @st:	     pointer for io_status
  *
  * This function waits until I/O in flight completes. If it returns
- * success, ioc_is_ready() is guaranteed to return ``true``.
- * If the function is successful and ``st`` is non-null, the io_status after
- * waiting is stored in ``st``.
+ * success, ioc_is_inflight() is guaranteed to return ``false``.
  *
  * Return: 0 in case of success. -1 in case of failure.
  *         Error code: -EINVAL: called for notification type &IOC_NOTIFY_NONE.
  *         For IOC_NOTIFY_EVENTFD, other errno values as set by read()
  *         and poll() are possible.
  */
-int ioc_wait_done(struct iocb *iocb, int *st);
+int ioc_wait_done(struct iocb *iocb);
 
 #endif /* _IOC_H */

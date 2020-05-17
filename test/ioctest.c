@@ -136,7 +136,7 @@ static void *io_thread(void *arg)
 		int r, sts;
 		uint64_t tmo, tmo_abs;
 
-		if (ioc_wait_done(iocb, NULL) == -1) {
+		if (ioc_wait_done(iocb) == -1) {
 			log(LOG_ERR, "failed to wait for idle: %m\n");
 			break;
 		}
@@ -155,8 +155,8 @@ static void *io_thread(void *arg)
 
 			tmo = job->tmo + (rand() % job->tmo) / 2;
 			clock_gettime(CLOCK_MONOTONIC, &ts);
-			rc = ioc_submit(iocb, tmo);
 			tmo_abs = ts_to_us(&ts) + tmo;
+			rc = ioc_submit(iocb, tmo);
 
 			if (rc == 0) {
 				stats.requests++;
@@ -165,11 +165,12 @@ static void *io_thread(void *arg)
 			sched_yield();
 		}
 
-		r = ioc_wait_event(iocb, &sts);
+		r = ioc_wait_event(iocb);
 		if (r == -1) {
 			log(LOG_ERR, "failed to wait for completion: %m\n");
 			break;
 		}
+		sts = ioc_get_status(iocb);
 
 		log(LOG_INFO, "job %d sts=%s\n", job->n, ioc_status_name(sts));
 

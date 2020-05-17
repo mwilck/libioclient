@@ -745,7 +745,7 @@ static inline int ioc_wait_for_cond(unsigned int mask, struct request *req,
 }
 
 
-static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
+static int _ioc_wait(struct iocb *iocb, unsigned int mask)
 {
 	struct request *req;
 	uint64_t val;
@@ -816,17 +816,15 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 	log(LOG_DEBUG, "rc=%d rv=%d\n", rc, rv);
 	if (rc != 0)
 		log(LOG_ERR, "error: %m\n");
-	else if (st)
-		*st = rv;
 	return rc;
 }
 
-int ioc_wait_done(struct iocb *iocb, int *st) {
-	return _ioc_wait(iocb, st, ~IOC_TIMEOUT);
+int ioc_wait_done(struct iocb *iocb) {
+	return _ioc_wait(iocb, ~IOC_TIMEOUT);
 }
 
-int ioc_wait_event(struct iocb *iocb, int *st) {
-	return _ioc_wait(iocb, st, ~0);
+int ioc_wait_event(struct iocb *iocb) {
+	return _ioc_wait(iocb, ~0);
 }
 
 int ioc_get_eventfd(const struct iocb *iocb) {
