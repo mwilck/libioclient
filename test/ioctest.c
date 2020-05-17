@@ -173,7 +173,7 @@ static void *io_thread(void *arg)
 
 		log(LOG_INFO, "job %d sts=%s\n", job->n, ioc_status_name(sts));
 
-		if (ioc_is_inflight(iocb)) {
+		if (ioc_has_timed_out(iocb)) {
 			int64_t delta;
 			struct timespec ts_now;
 

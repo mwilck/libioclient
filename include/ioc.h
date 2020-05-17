@@ -175,24 +175,31 @@ int ioc_get_status(const struct iocb *iocb);
 
 /**
  * ioc_is_inflight() - check if IO is in flight for iocb
- * @st: return value from ioc_get_status() or ioc_wait_complete()
+ * @iocb: the iocb to check.
  *
  * Return: ``true`` if I/O is in flight.
  */
 bool ioc_is_inflight(const struct iocb *iocb);
 
 /**
+ * ioc_is_inflight() - check if IO is in flight for iocb
+ * @iocb: the iocb to check.
+ *
+ * Return: ``true`` if the deadline given in ioc_submit() had
+ * expired before the IO completed.
+ */
+bool ioc_has_timed_out(const struct iocb *iocb);
+
+/**
  * ioc_wait_event() - wait for completion or timeout
  * @iocb:    the iocb to wait on
- * @st:	     pointer for io_status
  *
  * This function waits on an iocb until its status has either
- * completed or timed out. If the function is successful and ``st``
- * is non-null, the io_status after waiting is stored in ``st``.
+ * completed or timed out.
  *
  * Return: See ioc_wait_done().
  */
-int ioc_wait_event(struct iocb *iocb, int *st);
+int ioc_wait_event(struct iocb *iocb);
 
 /**
  * ioc_wait_done() - wait until completion

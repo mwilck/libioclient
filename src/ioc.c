@@ -88,24 +88,14 @@ const char *ioc_status_name(int st)
 	return "UNKNOWN";
 }
 
-static inline int req_get_int_status(const struct request *req)
-{
-	cmm_smp_rmb();
-	return uatomic_read(&req->io_status);
-}
-
-static inline bool __ioc_is_inflight(int st) {
-	return !(st & IOC_DONE);
-}
-
 bool ioc_is_inflight(const struct iocb *iocb)
 {
-	return __ioc_is_inflight(req_get_int_status(iocb2request_const(iocb)));
+	return req_is_inflight(iocb2request_const(iocb));
 }
 
-static inline bool req_is_inflight(const struct request *req)
+bool ioc_has_timed_out(const struct iocb *iocb)
 {
-	return __ioc_is_inflight(req_get_int_status(req));
+	return req_has_timed_out(iocb2request_const(iocb));
 }
 
 struct aio_group {

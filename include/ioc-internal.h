@@ -56,4 +56,28 @@ static inline const struct request *iocb2request_const(const struct iocb *iocb)
 	return iocb ? container_of(iocb, const struct request, iocb) : NULL;
 }
 
+static inline bool __ioc_is_inflight(int st) {
+	return !(st & IOC_DONE);
+}
+
+static inline int req_get_int_status(const struct request *req)
+{
+	cmm_smp_rmb();
+	return uatomic_read(&req->io_status);
+}
+
+static inline bool req_is_inflight(const struct request *req)
+{
+	return __ioc_is_inflight(req_get_int_status(req));
+}
+
+static inline bool __ioc_has_timed_out(int st) {
+	return (st & IOC_TIMEOUT);
+}
+
+static inline bool req_has_timed_out(const struct request *req)
+{
+	return __ioc_has_timed_out(req_get_int_status(req));
+}
+
 #endif /* _IOC_INTERNAL_H */
