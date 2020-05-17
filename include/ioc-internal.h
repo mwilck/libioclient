@@ -53,7 +53,7 @@ struct aio_group {
 	unsigned int index;
 	unsigned int nr_reqs;
 	/* This lock protects access to the req member */
-	pthread_rwlock_t req_lock;
+	pthread_mutex_t req_mutex;
 	struct request **req;
 	pthread_t event_thread;
 	bool event_thread_running;

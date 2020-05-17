@@ -120,7 +120,7 @@ static void __destroy_aio_group(struct aio_group *grp)
 	pthread_cond_destroy(&grp->event_cond);
 	pthread_mutex_destroy(&grp->timer_mutex);
 	pthread_mutex_destroy(&grp->event_mutex);
-	pthread_rwlock_destroy(&grp->req_lock);
+	pthread_mutex_destroy(&grp->req_mutex);
 	free(grp->req);
 	free(grp);
 }
@@ -262,7 +262,7 @@ static void wakeup_waiters(struct aio_group *grp)
 	pthread_cond_broadcast(&grp->event_cond);
 }
 
-/* Called with grp->req_lock held in write mode */
+/* Called with grp->req_mutex held in write mode */
 static void __unlink_request(struct aio_group *grp, unsigned int i)
 {
 	struct request *r;
@@ -283,17 +283,16 @@ static void unlink_request(struct aio_group *grp, unsigned int i)
 
 	assert(i < N_REQUESTS);
 
-	/* FIXME: do we need this wrlock? atomic, maybe? */
-	pthread_rwlock_wrlock(&grp->req_lock);
+	pthread_mutex_lock(&grp->req_mutex);
 	r = grp->req[i];
 	grp->req[i] = NULL;
 	r->ctx = NULL;
 	r->idx = INVALID_SLOT;
 	uatomic_dec(&grp->nr_reqs);
-	pthread_rwlock_unlock(&grp->req_lock);
+	pthread_mutex_unlock(&grp->req_mutex);
 }
 
-/* Called with grp->req_lock held in write mode */
+/* Called with grp->req_mutex held  */
 static void __link_request(struct aio_group *grp, unsigned int i,
 			   struct request *req)
 {
@@ -313,12 +312,12 @@ static void link_request(struct aio_group *grp, unsigned int i,
 
 	assert(i < N_REQUESTS);
 
-	pthread_rwlock_wrlock(&grp->req_lock);
+	pthread_mutex_lock(&grp->req_mutex);
 	old = grp->req[i];
 	grp->req[i] = req;
 	req->idx = grp->index * N_REQUESTS * i;
 	req->ctx = group2context(grp);
-	pthread_rwlock_unlock(&grp->req_lock);
+	pthread_mutex_unlock(&grp->req_mutex);
 
 	assert(old == NULL);
 	uatomic_inc(&grp->nr_reqs);
@@ -387,7 +386,7 @@ static int ioc_init_aio_group(struct aio_group *grp)
 	if (pthread_cond_init(&grp->event_cond, NULL))
 		goto out_mutex;
 
-	if (pthread_rwlock_init(&grp->req_lock, NULL))
+	if (pthread_mutex_init(&grp->req_mutex, NULL))
 		goto out_cond;
 
 	se.sigev_value.sival_ptr = grp;
@@ -415,7 +414,7 @@ out_timer_mutex:
 out_timer:
 	timer_delete(grp->event_timer);
 out_rwlock:
-	pthread_rwlock_destroy(&grp->req_lock);
+	pthread_mutex_destroy(&grp->req_mutex);
 out_cond:
 	pthread_cond_destroy(&grp->event_cond);
 out_mutex:
@@ -529,8 +528,8 @@ static unsigned int try_to_alloc_slot_in_group(struct aio_group *grp,
 {
 	unsigned int idx;
 
-	pthread_rwlock_wrlock(&grp->req_lock);
-	pthread_cleanup_push(rwlock_unlock, &grp->req_lock);
+	pthread_mutex_lock(&grp->req_mutex);
+	pthread_cleanup_push(mutex_unlock, &grp->req_mutex);
 	if (uatomic_read(&grp->nr_reqs) < N_REQUESTS) {
 		idx = __find_aio_slot_in_group(grp);
 		if (idx < N_REQUESTS)
@@ -963,7 +962,7 @@ static void event_thread_cleanup(void *arg)
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 	disarm_event_timer(grp);
 
-	pthread_rwlock_wrlock(&grp->req_lock);
+	pthread_mutex_lock(&grp->req_mutex);
 	for (i = 0, n_inflight = 0; i < N_REQUESTS; i++) {
 		struct request *req = grp->req[i];
 		struct io_event ev;
@@ -981,7 +980,7 @@ static void event_thread_cleanup(void *arg)
 		}
 		__unlink_request(grp, i);
 	}
-	pthread_rwlock_unlock(&grp->req_lock);
+	pthread_mutex_unlock(&grp->req_mutex);
 
 	trash_ctx = grp->aio_ctx;
 	grp->aio_ctx = 0;
@@ -1024,11 +1023,8 @@ static bool event_thread_action(struct aio_group *grp, sigset_t *mask,
 	bool must_quit = false;
 	struct request *req;
 
-	while (pthread_rwlock_tryrdlock(&grp->req_lock) != 0) {
-		pthread_testcancel();
-		sched_yield();
-	}
-	pthread_cleanup_push(rwlock_unlock, &grp->req_lock);
+	pthread_mutex_lock(&grp->req_mutex);
+	pthread_cleanup_push(mutex_unlock, &grp->req_mutex);
 
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	now = ts_to_us(&ts);
