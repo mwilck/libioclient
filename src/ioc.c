@@ -816,7 +816,8 @@ void ioc_put_iocb(struct iocb *iocb)
 void ioc_put_iocb_cleanup(void *arg)
 	__attribute__((weak, alias("ioc_put_iocb")));
 
-static int ioc_set_notify(struct iocb *iocb, unsigned int type)
+static int ioc_set_notify(struct iocb *iocb, unsigned int type,
+        union ioc_notify_arg *arg)
 {
 	struct request *req;
 	int rv;
@@ -852,6 +853,16 @@ static int ioc_set_notify(struct iocb *iocb, unsigned int type)
 		}
 		log(LOG_DEBUG, "job %d fd=%d\n",
 		    req->idx, req->notify.eventfd);
+		if (arg)
+			arg->eventfd = req->notify.eventfd;
+		break;
+	case IOC_NOTIFY_CALLBACK:
+		if (!arg) {
+			log(LOG_ERR, "no callback function for IOC_NOTIFY_CALLBACK\n");
+			errno = EINVAL;
+			return -1;
+		}
+		req->notify.cb = arg->cb;
 		break;
 	case IOC_NOTIFY_NONE:
 	case IOC_NOTIFY_COMMON:
@@ -867,6 +878,7 @@ static int ioc_set_notify(struct iocb *iocb, unsigned int type)
 }
 
 struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
+			  union ioc_notify_arg *arg,
 			  void (*free_resources)(struct iocb*))
 {
 	struct request *req;
@@ -884,7 +896,7 @@ struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
 	ref_request(req);
 	uatomic_set(&req->io_status, IOC_DONE);
 
-	if (ioc_set_notify(&req->iocb, type) != 0) {
+	if (ioc_set_notify(&req->iocb, type, arg) != 0) {
 		unref_request(req);
 		return NULL;
 	}
@@ -915,6 +927,9 @@ static bool event_notify(struct request *req)
 		break;
 	case IOC_NOTIFY_COND:
 		pthread_cond_broadcast(&req->notify.cv.cond);
+		break;
+	case IOC_NOTIFY_CALLBACK:
+		req->notify.cb(&req->iocb);
 		break;
 	case IOC_NOTIFY_COMMON:
 		/* common will be woken up later */

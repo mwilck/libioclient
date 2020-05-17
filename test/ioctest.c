@@ -127,7 +127,7 @@ static void *io_thread(void *arg)
 		return NULL;
 	}
 
-	iocb = ioc_new_iocb(ctx, IOC_NOTIFY, free_iocb_buf);
+	iocb = ioc_new_iocb(ctx, IOC_NOTIFY, NULL, free_iocb_buf);
 	if (!iocb) {
 		free(buf);
 		log(LOG_ERR, "ioc_new_iocb: %m\n");

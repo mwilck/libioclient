@@ -32,6 +32,7 @@ union event_notify {
 		pthread_cond_t cond;
 		pthread_mutex_t mutex;
 	} cv;
+	ioc_notify_callback cb;
 	int eventfd;
 };
 

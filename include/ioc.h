@@ -70,25 +70,47 @@ void ioc_put_context(struct context *c);
  *                       This is less prone to contention.
  * @IOC_NOTIFY_EVENTFD:  use a linux  ``eventfd`` which is created by the
  *                       application.
+ * @IOC_NOTIFY_CALLBACK: use a user-defined callback function
  * @IOC_NOTIFY_NONE:     Don't use notification.
  */
 enum ioc_notify_type {
 	IOC_NOTIFY_COMMON,
 	IOC_NOTIFY_COND,
 	IOC_NOTIFY_EVENTFD,
+	IOC_NOTIFY_CALLBACK,
 	IOC_NOTIFY_NONE,
+};
+
+/**
+ * ioc_notify_calback - function prototype for event notification
+ * @iocb: the iocb that had an event.
+ *
+ * Callback functions are called in the event thread's context and should
+ * be minimal. In no event they should block.
+ */
+typedef void (*ioc_notify_callback) (struct iocb *iocb);
+
+union ioc_notify_arg {
+	ioc_notify_callback cb;
+	int eventfd;
 };
 
 /**
  * ioc_new_iocb() - create an iocb object
  * @ctx: context in which to create the iocb
  * @type: enum &ioc_notify_type value, see above.
+ * @arg: notify argument, for @IOC_NOTIFY_CALLBACK or @IOC_NOTIFY_EVENTFD
  * @free_resources: a function that will be called when the IO completes
  *
  * This function creates the basic unit for I/O in libioclient,  the iocb.
  * The data structure is the same as in libaio.
  * The libaio functions io_prep_pread() and io_prep_pwrite()
  * can be used to initialize &iocb objects for actual I/O.
+ *
+ * @arg.cb should contain the callback function if @type is
+ * @IOC_NOTIFY_CALLBACK. If @type is @IOC_NOTIFY_EVENTFD, @arg.eventfd will
+ * be set the eventfd upon successful return, if @arg is non-NULL.
+ * For other values of @type, @arg is unused.
  *
  * free_resources() is the pointer to a cleanup function. This function will
  * be called when ioc_put_iocb() is called, if no IO is inflight at that time,
@@ -102,6 +124,7 @@ enum ioc_notify_type {
  * Return: a new iocb in case of success, NULL otherwise.
  */
 struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
+			  union ioc_notify_arg *arg,
 			  void (*free_resources)(struct iocb*));
 
 /**
@@ -185,7 +208,7 @@ int ioc_get_status(const struct iocb *iocb);
 bool ioc_is_inflight(const struct iocb *iocb);
 
 /**
- * ioc_is_inflight() - check if IO is in flight for iocb
+ * ioc_has_timed_out() - check if has timed out
  * @iocb: the iocb to check.
  *
  * Return: ``true`` if the deadline given in ioc_submit() had
@@ -213,7 +236,8 @@ int ioc_wait_event(struct iocb *iocb);
  * success, ioc_is_inflight() is guaranteed to return ``false``.
  *
  * Return: 0 in case of success. -1 in case of failure.
- *         Error code: -EINVAL: called for notification type &IOC_NOTIFY_NONE.
+ *         Error code: -EINVAL: called for notification type &IOC_NOTIFY_NONE or
+ *         %IOC_NOTIFY_CALLBACK.
  *         For IOC_NOTIFY_EVENTFD, other errno values as set by read()
  *         and poll() are possible.
  */
