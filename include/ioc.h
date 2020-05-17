@@ -1,40 +1,29 @@
 #ifndef _IOC_H
 #define _IOC_H
 
-#define _IO_RUNNING_SHIFT 8
-#define _IO_RUNNING (1 << _IO_RUNNING_SHIFT)
-#define IO_STATUS_MASK (_IO_RUNNING - 1)
-
 /**
- * enum io_status - the "result" of an I/O operation
- * @IO_DONE:    ready for submission (idle or done)
- * @IO_RUNNING: I/O submitted, in flight
- * @IO_TIMEOUT: Timed out
- * @IO_ERR:	Error during iocb submission
- * @IO_IDLE:	Idle, ready for submission
- * @IO_INVALID:	invalid iocb pointer
+ * enum ioc_int_status - the "result" of an I/O operation
+ * This is the internal status
+ * @IOC_DONE:    ready for submission (idle or done)
+ * @IOC_RUNNING: I/O submitted, in flight
+ * @IOC_TIMEOUT: Timed out
  */
-enum io_status {
-	IO_RUNNING   = 0,
-	IO_TIMEOUT   = (1 <<  0),
-	IO_DONE      = (1 <<  1),
-	IO_ERR       = (1 <<  2),
-	IO_IDLE      = (1 <<  4),
-	IO_DISCARDED = (1 <<  8),
-	IO_INVALID   = (1 << 16),
+enum ioc_status {
+	IOC_RUNNING   = 0,
+	IOC_TIMEOUT   = (1 <<  0),
+	IOC_DONE      = (1 <<  1),
 };
 
 /**
  * ioc_status_name() - printed representation of an enum &io_status
  * @st: an &io_status value
  *
-  * Return: character string representing the status
+ * Return: character string representing the status
  */
 const char *ioc_status_name(int st);
 
 struct context;
 struct iocb;
-struct timespec;
 
 /**
  * libioc_init() - initialize libioclient
@@ -49,8 +38,7 @@ int libioc_init(void);
 /**
  * ioc_create_context() - create a new context for libioc requests
  *
- * At least one context is necessary to submit iocbs. An event
- * handling thread and an aio context are associated with the context.
+ * At least one context is necessary to submit iocbs.
  *
  * Return: Pointer to a newly allocated context if successful.
  *         NULL, otherwise.
@@ -168,7 +156,8 @@ void ioc_put_iocb_cleanup(void *arg);
  * Return:
  * 0 on success, -1 on failure (sets errno).
  * Errno values: EINVAL: invalid iocb pointer. EBUSY: iocb is busy, call
- * ioc_reset() first. Other values: see io_submit().
+ * ioc_reset() first, ESHUTDOWN: ioc_put_context() has been called on the iocb's
+ * context.
  */
 int ioc_submit(struct iocb *iocb, uint64_t deadline);
 

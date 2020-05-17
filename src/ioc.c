@@ -17,6 +17,7 @@
 #include <urcu/uatomic.h>
 #include <urcu.h>
 #include "ioc.h"
+#include "ioc-internal.h"
 #include "ioc-util.h"
 
 // Copyright (c) 2020 Martin Wilck, SUSE Software Solutions GmbH
@@ -69,67 +70,43 @@ const char *ioc_status_name(int st)
 	static const struct {
 		int st_val;
 		const char *const st_name;
-	} _status_names [] = {
-		{ IO_RUNNING, "running", },
-		{ IO_TIMEOUT, "timed out", },
-		{ IO_DONE, "done", },
-		{ IO_DONE|IO_TIMEOUT, "done after timeout", },
-		{ IO_ERR, "error", },
-		{ IO_ERR|IO_TIMEOUT, "error after timeout", },
-		{ IO_IDLE, "idle", },
-		{ IO_DISCARDED, "discarded", },
-		{ IO_DISCARDED|IO_TIMEOUT, "discarded after timeout", },
-		{ IO_INVALID, "invalid", },
+	} ioc_status_names [] = {
+		{ IOC_RUNNING, "running", },
+		{ IOC_TIMEOUT, "timed out", },
+		{ IOC_DONE, "done", },
+		{ IOC_DONE|IOC_TIMEOUT, "done after timeout", },
+		{ IOI_ERR, "error", },
+		{ IOI_IDLE, "idle", },
+		{ IOI_DISCARDED, "discarded", },
+		{ IOI_DISCARDED|IOC_TIMEOUT, "discarded after timeout", },
+		{ IOI_INVALID, "invalid", },
 	};
 
-	for (i = 0; i < sizeof(_status_names)/sizeof(*_status_names); i++) {
-		if (st == _status_names[i].st_val)
-			return _status_names[i].st_name;
+	for (i = 0; i < sizeof(ioc_status_names)/sizeof(*ioc_status_names); i++) {
+		if (st == ioc_status_names[i].st_val)
+			return ioc_status_names[i].st_name;
 	}
 	return "UNKNOWN";
 }
 
-struct context;
-
-union event_notify {
-	struct {
-		pthread_cond_t cond;
-		pthread_mutex_t mutex;
-	} cv;
-	int eventfd;
-};
-
-struct request {
-	struct iocb iocb;
-	unsigned int refcount;
-	enum io_status io_status;
-	uint64_t deadline;
-	struct context *ctx;
-	unsigned int idx;
-	int notify_type;
-	union event_notify notify;
-	/* for discarded events */
-	void (*free_resources)(struct iocb*);
-};
-
-static inline int _ioc_get_status(const struct request *req)
+static inline int req_get_int_status(const struct request *req)
 {
 	cmm_smp_rmb();
 	return uatomic_read(&req->io_status);
 }
 
 static inline bool __ioc_is_inflight(int st) {
-	return !(st & IO_DONE);
+	return !(st & IOC_DONE);
 }
 
 bool ioc_is_inflight(const struct iocb *iocb)
 {
-	return __ioc_is_inflight(ioc_get_status(iocb));
+	return __ioc_is_inflight(req_get_int_status(iocb2request_const(iocb)));
 }
 
 static inline bool req_is_inflight(const struct request *req)
 {
-	return __ioc_is_inflight(_ioc_get_status(req));
+	return __ioc_is_inflight(req_get_int_status(req));
 }
 
 struct aio_group {
@@ -292,7 +269,7 @@ static void release_aio_slot(struct context *ctx, unsigned int n);
 
 static void free_request(struct request *req)
 {
-	int status =  _ioc_get_status(req);
+	int status =  req_get_int_status(req);
 
 	log(__ioc_is_inflight(status) ? LOG_ERR : LOG_DEBUG,
 	    "freeing request %u, status %s\n",
@@ -313,7 +290,7 @@ static void free_request(struct request *req)
 	if (req->ctx && req->idx != INVALID_SLOT)
 		release_aio_slot(req->ctx, req->idx);
 
-	if (status & IO_DISCARDED && req->free_resources) {
+	if (status & IOI_DISCARDED && req->free_resources) {
 		log(LOG_INFO, "releasing resources\n");
 		req->free_resources(&req->iocb);
 	}
@@ -682,16 +659,15 @@ int ioc_reset(struct iocb *iocb)
 		return -1;
 	}
 
-	req = container_of(iocb, struct request, iocb);
-	switch (_ioc_get_status(req)) {
-	case IO_RUNNING:
-	case IO_TIMEOUT:
+	switch (req_get_int_status(req)) {
+	case IOC_RUNNING:
+	case IOC_TIMEOUT:
 		errno = EBUSY;
 		return -1;
 	default:
 		/* No race possible here, the event thread only operates
 		   on RUNNING or TIMEOUT state */
-		uatomic_set(&req->io_status, IO_IDLE);
+		uatomic_set(&req->io_status, IOI_IDLE);
 		return 0;
 	}
 }
@@ -708,8 +684,8 @@ int ioc_submit(struct iocb *iocb, uint64_t deadline)
 		return -1;
 	}
 
-	req = container_of(iocb, struct request, iocb);
-	if (_ioc_get_status(req) != IO_IDLE) {
+	req = iocb2request(iocb);
+	if (req_get_int_status(req) != IOI_IDLE) {
 		errno = EBUSY;
 		return -1;
 	}
@@ -738,14 +714,14 @@ int ioc_submit(struct iocb *iocb, uint64_t deadline)
 	rc = io_submit(ctx->group[group_idx]->aio_ctx, 1, &iocb);
 
 	if (rc != 1) {
-		uatomic_set(&req->io_status, IO_ERR);
+		uatomic_set(&req->io_status, IOI_ERR);
 		log(LOG_ERR, "io_submit (%u): %s\n", group_idx, strerror(-rc));
 		ret = -1;
 		errno = -rc;
 	} else {
 		/* This ref is held by "the kernel" and dropped when the IO completes */
 		ref_request(req);
-		uatomic_set(&req->io_status, IO_RUNNING);
+		uatomic_set(&req->io_status, IOC_RUNNING);
 		arm_event_timer(ctx->group[group_idx], req->deadline);
 		if (deadline)
 			log(LOG_DEBUG, "req %u timeout %" PRIu64 "us -> %" PRIu64 "\n",
@@ -763,10 +739,10 @@ int ioc_get_status(const struct iocb *iocb)
 	const struct request *req;
 
 	if (!iocb)
-		return IO_INVALID;
+		return IOI_INVALID;
 
-	req = container_of(iocb, const struct request, iocb);
-	return _ioc_get_status(req);
+	req = iocb2request_const(iocb);
+	return req_get_int_status(req) & IOI_PUBLIC_MASK;
 }
 
 static void eat_pending_events(int fd)
@@ -794,7 +770,7 @@ static inline int ioc_wait_for_cond(unsigned int mask, struct request *req,
 
 	pthread_mutex_lock(mutex);
 	pthread_cleanup_push(mutex_unlock, mutex);
-	while (((_rv = _ioc_get_status(req)) & mask) == 0)
+	while (((_rv = req_get_int_status(req)) & mask) == 0)
 		pthread_cond_wait(cond, mutex);
 	pthread_cleanup_pop(1);
 	return _rv;
@@ -814,9 +790,9 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 		return -1;
 	}
 
-	req = container_of(iocb, struct request, iocb);
+	req = iocb2request(iocb);
 	log(LOG_DEBUG, "type = %d val=%d mask=%08x\n",
-	    req->notify_type, _ioc_get_status(req), mask);
+	    req->notify_type, req_get_int_status(req), mask);
 
 	/* Caller must hold a ref to the request. It is illegal to wait
 	   after calling ioc_put_iocb() */
@@ -835,7 +811,7 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 		break;
 	case IOC_NOTIFY_EVENTFD:
 		eat_pending_events(req->notify.eventfd);
-		while (((rv = _ioc_get_status(req)) & mask) == 0) {
+		while (((rv = req_get_int_status(req)) & mask) == 0) {
 			struct pollfd pf = {
 				.fd = req->notify.eventfd,
 				.events = POLLIN,
@@ -878,7 +854,7 @@ static int _ioc_wait(struct iocb *iocb, int *st, unsigned int mask)
 }
 
 int ioc_wait_done(struct iocb *iocb, int *st) {
-	return _ioc_wait(iocb, st, ~IO_TIMEOUT);
+	return _ioc_wait(iocb, st, ~IOC_TIMEOUT);
 }
 
 int ioc_wait_event(struct iocb *iocb, int *st) {
@@ -892,7 +868,7 @@ int ioc_get_eventfd(const struct iocb *iocb) {
 		errno = EINVAL;
 		return -1;
 	}
-	req = container_of_const(iocb, struct request, iocb);
+	req = iocb2request_const(iocb);
 	if (req->notify_type != IOC_NOTIFY_EVENTFD) {
 		errno = EINVAL;
 		return -1;
@@ -906,10 +882,10 @@ void ioc_put_iocb(struct iocb *iocb)
 
 	if (!iocb)
 		return;
-	req = container_of(iocb, struct request, iocb);
+	req = iocb2request(iocb);
 
 	/* avoid further notifcations to be sent */
-	uatomic_add_return(&req->io_status, IO_DISCARDED);
+	uatomic_add_return(&req->io_status, IOI_DISCARDED);
 	unref_request(req);
 }
 
@@ -925,7 +901,7 @@ static int ioc_set_notify(struct iocb *iocb, unsigned int type)
 		errno = EINVAL;
 		return -1;
 	}
-	req = container_of(iocb, struct request, iocb);
+	req = iocb2request(iocb);
 	switch (type) {
 	case IOC_NOTIFY_COND:
 		rv = pthread_cond_init(&req->notify.cv.cond, NULL);
@@ -982,7 +958,7 @@ struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
 		return NULL;
 
 	ref_request(req);
-	uatomic_set(&req->io_status, IO_IDLE);
+	uatomic_set(&req->io_status, IOI_IDLE);
 
 	if (ioc_set_notify(&req->iocb, type) != 0) {
 		unref_request(req);
@@ -1034,10 +1010,8 @@ static bool handle_completions(int n, const struct io_event *events)
 		struct request *req;
 		int status;
 
-		req = container_of(events[i].obj, struct request,
-				   iocb);
-
-		status = uatomic_add_return(&req->io_status, IO_DONE);
+		req = iocb2request(events[i].obj);
+		status = uatomic_add_return(&req->io_status, IOC_DONE);
 
 		log(LOG_DEBUG,
 		    "req %u compl: st=%s %ld %lu ofs=%lld\n",
@@ -1045,7 +1019,7 @@ static bool handle_completions(int n, const struct io_event *events)
 		    events[i].res, events[i].res2,
 		    events[i].obj->u.c.offset);
 
-		if (!(status & IO_DISCARDED))
+		if (!(status & IOI_DISCARDED))
 			action_needed = action_needed || event_notify(req);
 
 		unref_request(req);
@@ -1142,13 +1116,13 @@ static bool event_thread_action(struct aio_group *grp, sigset_t *mask,
 			continue;
 		if (req->deadline < now + BLINK) {
 			if (uatomic_cmpxchg(&req->io_status,
-					    IO_RUNNING, IO_TIMEOUT)
-			    == IO_RUNNING) {
+					    IOC_RUNNING, IOC_TIMEOUT)
+			    == IOC_RUNNING) {
 				action_needed = action_needed ||
 					event_notify(req);
 				log(LOG_DEBUG,
 				    "req %u: timed out, sts=%s\n", req->idx,
-				    ioc_status_name(_ioc_get_status(req)));
+				    ioc_status_name(req_get_int_status(req)));
 			}
 		} else if (req->deadline < max_wait && req_is_inflight(req))
 			max_wait = req->deadline;

@@ -193,7 +193,7 @@ static void *io_thread(void *arg)
 				    ioc_status_name(sts), ts_to_us(&ts_now),
 				    tmo, delta);
 			}
-		} else if (sts == IO_DONE) {
+		} else if (sts == IOC_DONE) {
 			stats.completed++;
 			stats.bytes += IOSIZE;
 		} else {
