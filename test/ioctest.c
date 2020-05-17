@@ -74,6 +74,14 @@ static void print_stats(void *arg)
 	    s->overtime / ((long)s->timedout + 1), s->maxdelta);
 }
 
+static void free_iocb_buf(struct iocb *iocb)
+{
+	if (iocb->u.c.buf) {
+		free(iocb->u.c.buf);
+		iocb->u.c.buf = NULL;
+	}
+}
+
 static void *io_thread(void *arg)
 {
 	struct io_job *job = arg;
@@ -118,9 +126,8 @@ static void *io_thread(void *arg)
 		log(LOG_ERR, "posix_memalign: %m\n");
 		return NULL;
 	}
-	pthread_cleanup_push(free, buf);
 
-	iocb = ioc_new_iocb(ctx, IOC_NOTIFY, NULL);
+	iocb = ioc_new_iocb(ctx, IOC_NOTIFY, free_iocb_buf);
 	if (!iocb) {
 		free(buf);
 		log(LOG_ERR, "ioc_new_iocb: %m\n");
@@ -202,7 +209,6 @@ static void *io_thread(void *arg)
 	}
 
 	log(LOG_NOTICE, "io thread %d exiting:\n", job->n);
-	pthread_cleanup_pop(1);
 	pthread_cleanup_pop(1);
 	pthread_cleanup_pop(1);
 	pthread_cleanup_pop(1);
