@@ -32,3 +32,4 @@ configure
 stamp-*
 build/
 vgcore.*
+cscope.*
