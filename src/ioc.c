@@ -42,8 +42,6 @@
 /* LOG LEVEL, up to LOG_DEBUG + 1 */
 #define DEFAULT_LOGLEVEL LOG_NOTICE
 
-#define INVALID_SLOT ~0U
-
 int __ioc_loglevel = (DEFAULT_LOGLEVEL > MAX_LOGLEVEL ?
 		      MAX_LOGLEVEL : DEFAULT_LOGLEVEL);
 
@@ -90,37 +88,6 @@ bool ioc_has_timed_out(const struct iocb *iocb)
 	return req_has_timed_out(iocb2request_const(iocb));
 }
 
-struct aio_group {
-	io_context_t aio_ctx;
-	unsigned int index;
-	unsigned int nr_reqs;
-	/* This lock protects access to the req member */
-	pthread_rwlock_t req_lock;
-	struct request **req;
-	pthread_t event_thread;
-	bool event_thread_running;
-	/* Mutex/cond var for synchronization with event thread */
-	pthread_mutex_t event_mutex;
-	pthread_cond_t event_cond;
-	timer_t event_timer;
-	pthread_mutex_t timer_mutex;
-	uint64_t timer_fires;
-	struct context *ctx;
-};
-
-struct context {
-	unsigned int refcount;
-	unsigned int n_groups;
-	pthread_rwlock_t group_lock;
-	struct aio_group **group;
-	bool unloading;
-};
-
-static inline struct context *group2context(struct aio_group *grp)
-{
-	return grp->ctx;
-}
-
 #ifndef SYS_io_pgetevents
 static int __io_pgetevents(io_context_t ctx_id, long min_nr, long nr,
 			 struct io_event *events, struct timespec *tmo,
@@ -145,12 +112,6 @@ static void mutex_unlock(void *arg)
 static void rwlock_unlock(void *arg)
 {
 	pthread_rwlock_unlock((pthread_rwlock_t*) arg);
-}
-
-static void ref_context(struct context *c)
-{
-	int n = uatomic_add_return(&c->refcount, 1);
-	log(LOG_DEBUG, "ctx +refcount=%d\n", n);
 }
 
 static void __destroy_aio_group(struct aio_group *grp)
@@ -190,6 +151,12 @@ static void unref_context(struct context *c)
 	if (n == 0)
 		__destroy_context(c);
 	log(LOG_DEBUG, "ctx -refcount=%d\n", n);
+}
+
+static void ref_context(struct context *c)
+{
+	int n = uatomic_add_return(&c->refcount, 1);
+	log(LOG_DEBUG, "ctx +refcount=%d\n", n);
 }
 
 /* FIXME: make this lockless by calling it only from the event thread */

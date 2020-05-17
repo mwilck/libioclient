@@ -15,6 +15,8 @@ enum ioc_int_status {
 	IOI_INVALID   = (1 <<  8),
 };
 
+#define INVALID_SLOT ~0U
+
 #define container_of(ptr, type, member) ({		\
 			typeof( ((type *)0)->member ) *__mptr = (ptr);	\
 			(type *)( (char *)__mptr - offsetof(type,member) );})
@@ -46,6 +48,37 @@ struct request {
 	void (*free_resources)(struct iocb*);
 };
 
+struct aio_group {
+	io_context_t aio_ctx;
+	unsigned int index;
+	unsigned int nr_reqs;
+	/* This lock protects access to the req member */
+	pthread_rwlock_t req_lock;
+	struct request **req;
+	pthread_t event_thread;
+	bool event_thread_running;
+	/* Mutex/cond var for synchronization with event thread */
+	pthread_mutex_t event_mutex;
+	pthread_cond_t event_cond;
+	timer_t event_timer;
+	pthread_mutex_t timer_mutex;
+	uint64_t timer_fires;
+	struct context *ctx;
+};
+
+struct context {
+	unsigned int refcount;
+	unsigned int n_groups;
+	pthread_rwlock_t group_lock;
+	struct aio_group **group;
+	bool unloading;
+};
+
+static inline struct context *group2context(struct aio_group *grp)
+{
+	return grp->ctx;
+}
+
 static inline struct request *iocb2request(struct iocb *iocb)
 {
 	return iocb ? container_of(iocb, struct request, iocb) : NULL;
@@ -56,14 +89,14 @@ static inline const struct request *iocb2request_const(const struct iocb *iocb)
 	return iocb ? container_of(iocb, const struct request, iocb) : NULL;
 }
 
-static inline bool __ioc_is_inflight(int st) {
-	return !(st & IOC_DONE);
-}
-
 static inline int req_get_int_status(const struct request *req)
 {
 	cmm_smp_rmb();
 	return uatomic_read(&req->io_status);
+}
+
+static inline bool __ioc_is_inflight(int st) {
+	return !(st & IOC_DONE);
 }
 
 static inline bool req_is_inflight(const struct request *req)
