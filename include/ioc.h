@@ -1,12 +1,18 @@
 #ifndef _IOC_H
 #define _IOC_H
 
+struct context;
+struct iocb;
+
 /**
  * enum ioc_int_status - the "result" of an I/O operation
  * This is the internal status
  * @IOC_DONE:    ready for submission (idle or done)
  * @IOC_RUNNING: I/O submitted, in flight
  * @IOC_TIMEOUT: Timed out
+ *
+ * Note: @IOC_DONE does not imply *successful* completion. Check the
+ * iocb status flags for the result of the IO.
  */
 enum ioc_status {
 	IOC_RUNNING   = 0,
@@ -21,9 +27,6 @@ enum ioc_status {
  * Return: character string representing the status
  */
 const char *ioc_status_name(int st);
-
-struct context;
-struct iocb;
 
 /**
  * libioc_init() - initialize libioclient
@@ -132,7 +135,7 @@ void ioc_put_iocb(struct iocb *iocb);
  * @arg: pointer to an iocb object
  *
  * This is exactly like ioc_put_iocb, except for the function prototype.
- * The argument is define as ``void*`` to make it possible to pass this
+ * The argument is defined as ``void *`` to make it possible to pass this
  * function to pthread_cleanup_push() without casting.
  */
 void ioc_put_iocb_cleanup(void *arg);
