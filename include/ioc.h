@@ -58,18 +58,18 @@ int libioc_init(void);
 struct context *ioc_create_context(void);
 
 /**
- * ioc_destroy_context() - destroy a context object
+ * ioc_put_context() - destroy a context object
  * @ctx: pointer to context object
  *
- * Use this function to free the resources used by a context
- * previously allocated with ioc_create_context(). The event
- * thread is stopped, notifications will no longer work. No
- * new IO can be submitted to the context. In-flight IO will
- * continue. The resources are eventually freed when all
- * iocbs are released by the application (using ioc_put_iocb()),
- * and when in-flight IO is completed.
+ * Tell the library that this context will no longer be used
+ * by the application. After calling this function, ioc_submit()
+ * and ioc_new_iocb() can't be called any more for this context.
+ * The user must still call ioc_put_iocb() on all iocbs that are
+ * no longer used, even if they have completed. When all iocbs
+ * are released and all IO has completed, the resources used by
+ * the context will be freed.
  */
-void ioc_destroy_context(struct context *c);
+void ioc_put_context(struct context *c);
 
 /**
  * enum ioc_notify_type - notification type for iocb objects

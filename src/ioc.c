@@ -146,6 +146,7 @@ struct context {
 	unsigned int n_groups;
 	pthread_rwlock_t group_lock;
 	struct aio_group **group;
+	bool unloading;
 };
 
 static inline struct context *context_from_group(struct aio_group *grp)
@@ -412,8 +413,9 @@ static void discard_aio_group(struct aio_group *grp)
 
 static int start_event_thread(struct aio_group *grp);
 
-void ioc_destroy_context(struct context *c)
+void ioc_put_context(struct context *c)
 {
+	uatomic_set(&c->unloading, true);
 	unref_context(c);
 }
 
@@ -703,6 +705,11 @@ int ioc_submit(struct iocb *iocb, uint64_t deadline)
 		return -1;
 	}
 	ctx = req->ctx;
+	if (ctx == NULL || uatomic_read(&ctx->unloading)) {
+		log(LOG_ERR, "attempt to submit to unloading context\n");
+		errno = ESHUTDOWN;
+		return -1;
+	}
 	group_idx = group_index(req->idx, &req_idx);
 
 	if (deadline) {
@@ -956,6 +963,11 @@ struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
 	struct request *req;
 	unsigned int n;
 
+	if (!ctx || uatomic_read(&ctx->unloading)) {
+		log(LOG_ERR, "called on unloading context\n");
+		errno = ESHUTDOWN;
+		return NULL;
+	}
 	req = calloc(1, sizeof(*req));
 	if (!req)
 		return NULL;

@@ -313,7 +313,7 @@ int main(int argc, const char *const argv[])
 	close(fd);
 	rc = 0;
 out_destroy:
-	ioc_destroy_context(ctx);
+	ioc_put_context(ctx);
 	log(LOG_NOTICE, "done\n");
 	//  muntrace();
 	return rc;
