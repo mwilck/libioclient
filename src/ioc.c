@@ -76,7 +76,6 @@ const char *ioc_status_name(int st)
 		{ IOC_DONE, "done", },
 		{ IOC_DONE|IOC_TIMEOUT, "done after timeout", },
 		{ IOI_ERR, "error", },
-		{ IOI_IDLE, "idle", },
 		{ IOI_DISCARDED, "discarded", },
 		{ IOI_DISCARDED|IOC_TIMEOUT, "discarded after timeout", },
 		{ IOI_INVALID, "invalid", },
@@ -651,27 +650,6 @@ static unsigned int alloc_aio_slot(struct context *c, struct request *req)
 	return n;
 }
 
-int ioc_reset(struct iocb *iocb)
-{
-	struct request *req;
-	if (!iocb) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	switch (req_get_int_status(req)) {
-	case IOC_RUNNING:
-	case IOC_TIMEOUT:
-		errno = EBUSY;
-		return -1;
-	default:
-		/* No race possible here, the event thread only operates
-		   on RUNNING or TIMEOUT state */
-		uatomic_set(&req->io_status, IOI_IDLE);
-		return 0;
-	}
-}
-
 int ioc_submit(struct iocb *iocb, uint64_t deadline)
 {
 	struct request *req;
@@ -685,7 +663,7 @@ int ioc_submit(struct iocb *iocb, uint64_t deadline)
 	}
 
 	req = iocb2request(iocb);
-	if (req_get_int_status(req) != IOI_IDLE) {
+	if (__ioc_is_inflight(req_get_int_status(req))) {
 		errno = EBUSY;
 		return -1;
 	}
@@ -958,7 +936,7 @@ struct iocb *ioc_new_iocb(struct context *ctx, enum ioc_notify_type type,
 		return NULL;
 
 	ref_request(req);
-	uatomic_set(&req->io_status, IOI_IDLE);
+	uatomic_set(&req->io_status, IOC_DONE);
 
 	if (ioc_set_notify(&req->iocb, type) != 0) {
 		unref_request(req);

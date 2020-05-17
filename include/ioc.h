@@ -156,23 +156,10 @@ void ioc_put_iocb_cleanup(void *arg);
  * Return:
  * 0 on success, -1 on failure (sets errno).
  * Errno values: EINVAL: invalid iocb pointer. EBUSY: iocb is busy, call
- * ioc_reset() first, ESHUTDOWN: ioc_put_context() has been called on the iocb's
- * context.
+ * ioc_wait_done() first. ESHUTDOWN: ioc_put_context() has been called on the
+ * iocb's context.
  */
 int ioc_submit(struct iocb *iocb, uint64_t deadline);
-
-/**
- * ioc_reset() - reset iocb status before new submission
- * @iocb:      iocb to reset
- *
- * An application calls this function on a previously submitted and completed iocb.
- * This tells the librarry that the application is done processing the result.
- *
- * Return:
- * 0 on success, -1 on failure. errno values: EINVAL: invalid iocb passed.
- * EBUSY: I/O is still in flight, resetting isn't possible.
- */
-int ioc_reset(struct iocb *iocb);
 
 /**
  * ioc_get_status() - retrieve current status of iocb

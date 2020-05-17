@@ -147,11 +147,6 @@ static void *io_thread(void *arg)
 		io_prep_pread(iocb, job->fd, buf, IOSIZE, ofs);
 
 	repeat:
-		if (ioc_reset(iocb) == -1) {
-			log(LOG_ERR, "ioc_reset: %m\n");
-			break;
-		}
-
 		/* We can't free our data structures as long as I/O
 		   is in flight */
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);

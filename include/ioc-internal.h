@@ -11,9 +11,8 @@
 enum ioc_int_status {
 	IOI_PUBLIC_MASK = IOC_TIMEOUT | IOC_DONE,
 	IOI_ERR       = (1 <<  2),
-	IOI_IDLE      = (1 <<  4),
-	IOI_DISCARDED = (1 <<  8),
-	IOI_INVALID   = (1 << 16),
+	IOI_DISCARDED = (1 <<  4),
+	IOI_INVALID   = (1 <<  8),
 };
 
 #define container_of(ptr, type, member) ({		\
