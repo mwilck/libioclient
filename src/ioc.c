@@ -116,7 +116,7 @@ struct context {
 	bool unloading;
 };
 
-static inline struct context *context_from_group(struct aio_group *grp)
+static inline struct context *group2context(struct aio_group *grp)
 {
 	return grp->ctx;
 }
@@ -335,7 +335,7 @@ static void __link_request(struct aio_group *grp, unsigned int i,
 
 	grp->req[i] = req;
 	req->idx = grp->index * N_REQUESTS * i;
-	req->ctx = context_from_group(grp);
+	req->ctx = group2context(grp);
 	uatomic_inc(&grp->nr_reqs);
 }
 
@@ -350,7 +350,7 @@ static void link_request(struct aio_group *grp, unsigned int i,
 	old = grp->req[i];
 	grp->req[i] = req;
 	req->idx = grp->index * N_REQUESTS * i;
-	req->ctx = context_from_group(grp);
+	req->ctx = group2context(grp);
 	pthread_rwlock_unlock(&grp->req_lock);
 
 	assert(old == NULL);
@@ -1154,7 +1154,7 @@ static void *event_thread(void *arg)
 	sigdelset(&mask, SIG_EVSTOP);
 	sigdelset(&mask, SIG_EVUPDATE);
 
-	ref_context(context_from_group(grp));
+	ref_context(group2context(grp));
 	pthread_cleanup_push(event_thread_cleanup, grp);
 
 	pthread_mutex_lock(&grp->event_mutex);
