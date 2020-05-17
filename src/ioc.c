@@ -47,14 +47,6 @@
 int __ioc_loglevel = (DEFAULT_LOGLEVEL > MAX_LOGLEVEL ?
 		      MAX_LOGLEVEL : DEFAULT_LOGLEVEL);
 
-#define container_of(ptr, type, member) ({		\
-			typeof( ((type *)0)->member ) *__mptr = (ptr);	\
-			(type *)( (char *)__mptr - offsetof(type,member) );})
-#define container_of_const(ptr, type, member) ({		\
-			typeof( ((const type *)0)->member ) *__mptr = (ptr); \
-			(const type *)( (const char *)__mptr - \
-					offsetof(type,member) );})
-
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 static pthread_key_t exit_key;
 
