@@ -28,7 +28,7 @@ static void test_kernel_dir_name(void **state __attribute__((unused)))
 	const char kdir[] = "/lib/modules/6.0-scsidebug";
 	char *dir;
 
-	expect_any(__wrap_uname, buf);
+	expect_not_value(__wrap_uname, buf, NULL);
 	will_return(__wrap_uname, kdir + sizeof("/lib/modules"));
 	will_return(__wrap_uname, 0);
 	dir = kernel_dir_name();

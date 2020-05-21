@@ -39,12 +39,12 @@ static void test_log_default(void **state __attribute__((unused)))
 
 	libioc_init();
 
-	expect_any(__wrap_clock_gettime, clk_id);
+	expect_value(__wrap_clock_gettime, clk_id, CLOCK_MONOTONIC);
 	expect_string(__wrap_fprintf, format, IOC_LOG_TIME_FMT "default");
 	log(default_loglevel, "default");
 
 	/* crit and below can't be suppressed */
-	expect_any(__wrap_clock_gettime, clk_id);
+	expect_value(__wrap_clock_gettime, clk_id, CLOCK_MONOTONIC);
 	expect_string(__wrap_fprintf, format, IOC_LOG_TIME_FMT "crit");
 	log(LOG_CRIT, "crit");
 
@@ -95,20 +95,25 @@ static void test_log_max(void **state __attribute__((unused)))
 
 static void test_log(void **state __attribute__((unused)))
 {
-	char buf[2];
-	int l;
+	char buf[8];
+	int l, k;
 
 	for (l = LOG_EMERG; l <= MAX_LOGLEVEL; l++) {
-		snprintf(buf, sizeof(buf), "%d", LOG_DEBUG + 1);
+		snprintf(buf, sizeof(buf), "%d", l);
 		setenv("LIBIOC_LOGLEVEL", buf, true);
 
 		libioc_init();
+		assert_int_equal(__ioc_loglevel, l);
 
-		expect_any(__wrap_clock_gettime, clk_id);
-		expect_string(__wrap_fprintf, format, IOC_LOG_TIME_FMT "lvl");
-		log(l, "lvl");
+		for (k = LOG_EMERG; k <= l; k ++) {
+			expect_value(__wrap_clock_gettime, clk_id,
+				     CLOCK_MONOTONIC);
+			expect_string(__wrap_fprintf, format,
+				      IOC_LOG_TIME_FMT "lvl");
+			log(l, "lvl");
+		}
+		log(l + 1, "not called");
 	}
-	log(l, "not called");
 }
 
 static int testsuite1(void)
