@@ -1,5 +1,7 @@
 #ifndef _IOC_H
 #define _IOC_H
+#include <stdint.h>
+#include <stdbool.h>
 
 struct context;
 struct iocb;

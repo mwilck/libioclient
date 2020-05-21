@@ -1,5 +1,11 @@
 #ifndef _IOC_UTIL_H
 #define _IOC_UTIL_H
+#include <sys/types.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <syslog.h>
+#include <unistd.h>
+#include <time.h>
 
 #if __GLIBC__ == 2 && __GLIBC_MINOR__ < 30
 static pid_t __gettid(void)
