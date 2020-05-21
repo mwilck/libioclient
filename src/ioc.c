@@ -1183,9 +1183,15 @@ static void set_loglevel(void)
 		return;
 
 	n = strtol(lvl, &end, 10);
-	if (*end || n < LOG_EMERG || n > MAX_LOGLEVEL) {
+	if (*end) {
 		log(LOG_ERR, "Invalid value for %s: %s\n",
 		    env_loglvl, lvl);
+		return;
+	}
+	if (n < LOG_EMERG || n > MAX_LOGLEVEL) {
+		log(LOG_EMERG,
+		    "%s must be between %d and %d, ignoring requested value %ld and keeping %d\n",
+		    env_loglvl, LOG_EMERG, MAX_LOGLEVEL, n, __ioc_loglevel);
 		return;
 	}
 	__ioc_loglevel = n;
