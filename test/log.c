@@ -4,23 +4,14 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#define _GNU_SOURCE 1
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
-
-#include <stdbool.h>
-#include <stdint.h>
-#include <unistd.h>
-#include <time.h>
-#include <sys/types.h>
+#include "cmocka-inc.h"
 #include <ioc.h>
 #include <ioc-util.h>
 
-#include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
-#include <syslog.h>
+#include <sys/types.h>
+
 
 int
 __wrap_clock_gettime(clockid_t clk_id,
