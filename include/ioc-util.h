@@ -7,12 +7,13 @@
 #include <unistd.h>
 #include <time.h>
 
-#if __GLIBC__ == 2 && __GLIBC_MINOR__ < 30
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ < 30) || __USE_GNU != 1
+#include <syscall.h>
 static pid_t __gettid(void)
 {
 	return syscall(SYS_gettid);
 }
-#define gettid __gettid
+#define gettid() __gettid()
 #endif
 
 #define IOC_LOG_TIME_FMT "[%ld.%06ld] (%d/%s): "
