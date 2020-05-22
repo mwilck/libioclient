@@ -244,7 +244,7 @@ int main(int argc, const char *const argv[])
 	struct timespec ts;
 
 	// mtrace();
-	libioc_init();
+	ioc_init();
 
 	if (argc != 2) {
 		log(LOG_ERR, "filename argument missing\n");

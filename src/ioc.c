@@ -1197,7 +1197,7 @@ static void set_loglevel(void)
 	__ioc_loglevel = n;
 }
 
-int libioc_init(void)
+int ioc_init(void)
 {
 	(void)pthread_once(&init_once, create_exit_key);
 	set_loglevel();

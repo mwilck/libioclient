@@ -31,14 +31,14 @@ enum ioc_status {
 const char *ioc_status_name(int st);
 
 /**
- * libioc_init() - initialize libioclient
+ * ioc_init() - initialize libioclient
  *
  * Call this before making any other calls to functions of this
  * library.
  *
  * Return: 0
  */
-int libioc_init(void);
+int ioc_init(void);
 
 /**
  * ioc_create_context() - create a new context for libioc requests

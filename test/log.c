@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
-
 int
 __wrap_clock_gettime(clockid_t clk_id,
 		     struct timespec *ts __attribute__((unused)))
@@ -37,7 +36,7 @@ static void test_log_default(void **state __attribute__((unused)))
 {
 	unsetenv("LIBIOC_LOGLEVEL");
 
-	libioc_init();
+	ioc_init();
 
 	expect_value(__wrap_clock_gettime, clk_id, CLOCK_MONOTONIC);
 	expect_string(__wrap_fprintf, format, IOC_LOG_TIME_FMT "default");
@@ -59,22 +58,22 @@ static void test_invalid_level(void **state __attribute__((unused)))
 
 	snprintf(buf, sizeof(buf), "%s", "bad");
 	setenv("LIBIOC_LOGLEVEL", buf, true);
-	libioc_init();
+	ioc_init();
 	assert_int_equal(__ioc_loglevel, old_lvl);
 
 	snprintf(buf, sizeof(buf), "%d", LOG_EMERG - 1);
 	setenv("LIBIOC_LOGLEVEL", buf, true);
-	libioc_init();
+	ioc_init();
 	assert_int_equal(__ioc_loglevel, old_lvl);
 
 	snprintf(buf, sizeof(buf), "%d", MAX_LOGLEVEL + 1);
 	setenv("LIBIOC_LOGLEVEL", buf, true);
-	libioc_init();
+	ioc_init();
 	assert_int_equal(__ioc_loglevel, old_lvl);
 
 	*buf = '\0';
 	setenv("LIBIOC_LOGLEVEL", buf, true);
-	libioc_init();
+	ioc_init();
 	assert_int_equal(__ioc_loglevel, old_lvl);
 }
 
@@ -85,7 +84,7 @@ static void test_log_max(void **state __attribute__((unused)))
 	snprintf(buf, sizeof(buf), "%d", MAX_LOGLEVEL);
 	setenv("LIBIOC_LOGLEVEL", buf, true);
 
-	libioc_init();
+	ioc_init();
 
 	expect_value(__wrap_clock_gettime, clk_id, CLOCK_MONOTONIC);
 	expect_string(__wrap_fprintf, format, IOC_LOG_TIME_FMT "max");
@@ -102,7 +101,7 @@ static void test_log(void **state __attribute__((unused)))
 		snprintf(buf, sizeof(buf), "%d", l);
 		setenv("LIBIOC_LOGLEVEL", buf, true);
 
-		libioc_init();
+		ioc_init();
 		assert_int_equal(__ioc_loglevel, l);
 
 		for (k = LOG_EMERG; k <= l; k ++) {
