@@ -42,4 +42,12 @@ static inline void us_to_ts(uint64_t us, struct timespec *ts)
 	ts->tv_nsec = (us % 1000000) * 1000;
 }
 
+static inline uint64_t now_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts_to_us(&ts);
+}
+
 #endif
