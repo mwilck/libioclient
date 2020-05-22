@@ -107,6 +107,41 @@ static void test_kernel_dir_name4(void **state __attribute__((unused)))
 	__call_kernel_dir_name(kdir, 0, -1, NULL, NULL);
 }
 
+static const char modname[] = "scsi_debug";
+static void test_is_module_loaded1(void **state __attribute__((unused)))
+{
+	int rc = is_module_loaded(modname);
+
+	/* log(LOG_NOTICE, "module %s: %d (%s)\n", modname, rc,
+	   rc < 0 ? strerror(-rc) : ""); */
+	assert_int_equal(rc, 0);
+}
+
+static void test_is_module_loaded2(void **state __attribute__((unused)))
+{
+	int rc = is_module_loaded(modname);
+
+	/* log(LOG_NOTICE, "module %s: %d (%s)\n", modname, rc,
+	   rc < 0 ? strerror(-rc) : ""); */
+	assert_int_equal(rc, 1);
+}
+
+static void test_load_module1(void **state __attribute__((unused)))
+{
+	int rc = load_module(modname);
+
+	/* log(LOG_NOTICE, "module %s: %d\n", modname, rc); */
+	assert_int_equal(rc, 0);
+}
+
+static void test_unload_module1(void **state __attribute__((unused)))
+{
+	int rc = unload_module(modname);
+
+	/* log(LOG_NOTICE, "module %s: %d\n", modname, rc); */
+	assert_int_equal(rc, 0);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -114,6 +149,11 @@ int main(void)
 		cmocka_unit_test(test_kernel_dir_name2),
 		cmocka_unit_test(test_kernel_dir_name3),
 		cmocka_unit_test(test_kernel_dir_name4),
+		cmocka_unit_test(test_is_module_loaded1),
+		cmocka_unit_test(test_load_module1),
+		cmocka_unit_test(test_is_module_loaded2),
+		cmocka_unit_test(test_unload_module1),
+		cmocka_unit_test(test_is_module_loaded1),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);
