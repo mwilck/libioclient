@@ -1,10 +1,12 @@
 cmocka_dep = dependency('cmocka')
+kmod_dep = dependency('libkmod')
 
 scsi_sources = ['scsi.c']
 scsi = shared_library('scsi',
 		      scsi_sources,
 		      include_directories: inc,
 		      link_with: ioclib,
+		      dependencies: kmod_dep,
 		      install: false)
 
 ioctest = executable('ioctest', 'ioctest.c',
@@ -14,7 +16,10 @@ ioctest = executable('ioctest', 'ioctest.c',
 
 mocka_tests = {
 		'log': {},
-		'scsi_debug': { 'src': ['scsi.c'] }
+		'scsi_debug': {
+				'src': ['scsi.c'],
+				'deps': kmod_dep
+			      },
 	      }
 
 foreach name, properties: mocka_tests
@@ -31,10 +36,14 @@ foreach name, properties: mocka_tests
   if 'lib' in properties
        link = properties['lib'] + link
   endif
+  deps = [cmocka_dep, aio_dep, urcu_dep, thread_dep, rt_dep]
+  if 'deps' in properties
+    deps += properties['deps']
+  endif
   exe = executable(name, src,
 		   include_directories : inc,
 		   link_with: link,
 		   link_args: wrap,
-		   dependencies : [cmocka_dep, aio_dep, urcu_dep, thread_dep, rt_dep])
+		   dependencies : deps)
   test(name, exe)
 endforeach
