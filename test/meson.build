@@ -7,7 +7,10 @@ ioctest = executable('ioctest', 'ioctest.c',
 
 mocka_tests = {
 		'log': {},
-		'scsi_debug': { 'lib': [scsi_debug] },
+		'scsi_debug': {
+				'obj': [scsi_debug.extract_all_objects()],
+				'deps': kmod_dep
+			      },
 	      }
 
 foreach name, properties: mocka_tests
@@ -16,6 +19,10 @@ foreach name, properties: mocka_tests
   r = run_command('sed', '-n', 's/^__wrap_\([a-zA-Z0-9_]*\).*$/-Wl,--wrap=\\1/p',
 		  '@0@.c'.format(name))
   wrap = r.stdout().strip().split('\n')
+  obj = []
+  if 'obj' in properties
+       obj += properties['obj']
+  endif
   src = ['@0@.c'.format(name)]
   if 'src' in properties
     src += properties['src']
@@ -30,6 +37,7 @@ foreach name, properties: mocka_tests
   endif
   exe = executable(name, src,
 		   include_directories : inc,
+		   objects: obj,
 		   link_with: link,
 		   link_args: wrap,
 		   dependencies : deps)
