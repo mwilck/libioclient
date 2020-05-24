@@ -21,13 +21,6 @@ char *kernel_dir_name(void)
 	return buf;
 }
 
-static struct kmod_ctx *kmod_ctx_new(void)
-{
-	static const char *null_config;
-
-	return kmod_new(NULL, &null_config);
-}
-
 #define __cleanup__(f) __attribute__((cleanup(f)))
 
 static void cleanup_kmod_module(struct kmod_module **mod)
@@ -55,7 +48,7 @@ int is_module_loaded(const char *name)
 	struct kmod_list *iter;
 	int rc;
 
-	ctx = kmod_ctx_new();
+	ctx = kmod_new(NULL, NULL);
 	if (!ctx)
 		return -1;
 
@@ -100,7 +93,7 @@ int load_module(const char *name)
 	struct kmod_list *iter;
 	int rc;
 
-	ctx = kmod_ctx_new();
+	ctx = kmod_new(NULL, NULL);
 	if (!ctx)
 		return -1;
 
@@ -140,7 +133,7 @@ int unload_module(const char *name)
 	static const uint64_t LIMIT = 1000000;
 	static const useconds_t SLEEP = LIMIT/10;
 
-	ctx = kmod_ctx_new();
+	ctx = kmod_new(NULL, NULL);
 	if (!ctx)
 		return -1;
 
