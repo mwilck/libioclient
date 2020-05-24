@@ -41,6 +41,26 @@ static void cleanup_kmod_ctx(struct kmod_ctx **ctx)
 		kmod_unref(*ctx);
 }
 
+static int lookup_module(struct kmod_ctx *ctx, const char *name,
+			 struct kmod_list **lst)
+{
+	int rc;
+
+	rc = kmod_module_new_from_lookup(ctx, name, lst);
+	if (rc < 0) {
+		log(LOG_ERR, "kmod_module_new_from_lookup (%s): %s\n",
+		    name, strerror(-rc));
+		errno = -rc;
+		return -1;
+	} else if (*lst == NULL) {
+		log(LOG_ERR, "kmod_module_new_from_lookup (%s): not found\n",
+		    name);
+		errno = ENOENT;
+		return -1;
+	}
+	return rc;
+}
+
 int is_module_loaded(const char *name)
 {
 	struct kmod_ctx *ctx __cleanup__(cleanup_kmod_ctx) = NULL;
@@ -52,12 +72,9 @@ int is_module_loaded(const char *name)
 	if (!ctx)
 		return -1;
 
-	rc = kmod_module_new_from_lookup(ctx, name, &lst);
-	if (rc < 0) {
-		log(LOG_ERR, "kmod_module_new_from_lookup: %s\n",
-		    strerror(-rc));
-		return -1;
-	}
+	rc = lookup_module(ctx, name, &lst);
+	if (rc == -1)
+		return rc;
 
 	kmod_list_foreach(iter, lst) {
 		struct kmod_module *mod
@@ -97,12 +114,9 @@ int load_module(const char *name)
 	if (!ctx)
 		return -1;
 
-	rc = kmod_module_new_from_lookup(ctx, name, &lst);
-	if (rc < 0) {
-		log(LOG_ERR, "kmod_module_new_from_lookup: %s\n",
-		    strerror(-rc));
-		return -1;
-	}
+	rc = lookup_module(ctx, name, &lst);
+	if (rc == -1)
+		return rc;
 
 	kmod_list_foreach(iter, lst) {
 		struct kmod_module *mod
