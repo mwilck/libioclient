@@ -1,13 +1,4 @@
 cmocka_dep = dependency('cmocka')
-kmod_dep = dependency('libkmod')
-
-scsi_sources = ['scsi.c']
-scsi = shared_library('scsi',
-		      scsi_sources,
-		      include_directories: inc,
-		      link_with: ioclib,
-		      dependencies: kmod_dep,
-		      install: false)
 
 ioctest = executable('ioctest', 'ioctest.c',
 		     include_directories : inc,
@@ -16,10 +7,7 @@ ioctest = executable('ioctest', 'ioctest.c',
 
 mocka_tests = {
 		'log': {},
-		'scsi_debug': {
-				'src': ['scsi.c'],
-				'deps': kmod_dep
-			      },
+		'scsi_debug': { 'lib': [scsi_debug] },
 	      }
 
 foreach name, properties: mocka_tests

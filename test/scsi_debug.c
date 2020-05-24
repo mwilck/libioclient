@@ -8,7 +8,7 @@
 #include <errno.h>
 #include <sys/utsname.h>
 
-#include "scsi.h"
+#include "scsi-debug.h"
 
 #define WRAP_USE_REAL ((int)0xaffedead)
 
