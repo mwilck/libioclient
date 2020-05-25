@@ -290,7 +290,8 @@ static int call_load_module(const char *modname,
 	will_return(__wrap_kmod_new, kmod_new_rv);
 
 	if (kmod_new_rv != NULL)
-		call_kmod_module_new_from_lookup(modname, lookup_rv, lookup_list);
+		call_kmod_module_new_from_lookup(modname,
+						 lookup_rv, lookup_list);
 
 	return load_module(modname);
 }
@@ -300,6 +301,30 @@ static int call_load_module(const char *modname,
 static void test_load_module_err_1(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_load_module(mod_name, NULL, 0, NULL), -1);
+}
+
+/* Error in kmod_module_new_from_lookup(): alias = NULL */
+static void test_load_module_err_2(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
+					  WRAP_USE_REAL, NULL),
+			 -1);
+}
+
+/* Error in kmod_module_new_from_lookup(): other */
+static void test_load_module_err_3(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
+					  -ENOMEM, NULL),
+			 -1);
+}
+
+/* module not found in kmod_module_new_from_lookup() */
+static void test_load_module_empty(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
+					  0, NULL),
+			 -1);
 }
 
 static void test_load_module_real(void **state __attribute__((unused)))
@@ -350,6 +375,9 @@ static int run_mock_modload_tests(void)
 		cmocka_unit_test(test_is_module_loaded_err_3),
 		cmocka_unit_test(test_is_module_loaded_empty),
 		cmocka_unit_test(test_load_module_err_1),
+		cmocka_unit_test(test_load_module_err_2),
+		cmocka_unit_test(test_load_module_err_3),
+		cmocka_unit_test(test_load_module_empty),
 		cmocka_unit_test(test_unload_module_err_1),
 	};
 
