@@ -82,7 +82,7 @@ int is_module_loaded(const char *name)
 		mod = kmod_module_get_module(iter);
 		if (mod) {
 			state = kmod_module_get_initstate(mod);
-			if (state == -ENOENT) {
+			if (state == -ENOENT || state == KMOD_MODULE_GOING) {
 				rc = 0;
 				break;
 			} else if (state < 0) {
