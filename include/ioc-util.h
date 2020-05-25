@@ -50,4 +50,6 @@ static inline uint64_t now_us(void)
 	return ts_to_us(&ts);
 }
 
+#define __cleanup__(f) __attribute__((cleanup(f)))
+
 #endif

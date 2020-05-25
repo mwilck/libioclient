@@ -21,8 +21,6 @@ char *kernel_dir_name(void)
 	return buf;
 }
 
-#define __cleanup__(f) __attribute__((cleanup(f)))
-
 static void cleanup_kmod_module(struct kmod_module **mod)
 {
 	if (mod && *mod)
