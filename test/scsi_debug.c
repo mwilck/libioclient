@@ -9,6 +9,7 @@
 #include <sys/utsname.h>
 
 #include "scsi-debug.h"
+#include <kmod/libkmod.h>
 
 #define WRAP_USE_REAL ((int) 0xaffedead)
 #define WRAP_USE_REAL_PTR ((void*) WRAP_USE_REAL)
@@ -180,14 +181,50 @@ __wrap_kmod_new(const char *dirname,
 		return ptr;
 }
 
+int __real_kmod_module_new_from_lookup(struct kmod_ctx *ctx,
+				       const char *given_alias,
+				       struct kmod_list **list);
+
+int
+__wrap_kmod_module_new_from_lookup(struct kmod_ctx *ctx,
+				   const char *given_alias,
+				   struct kmod_list **list)
+{
+	int rv;
+
+	check_expected_ptr(ctx);
+	check_expected_ptr(given_alias);
+	check_expected_ptr(list);
+	assert_ptr_equal(*list, NULL);
+
+	rv = mock_type(int);
+	if (rv != WRAP_USE_REAL)
+		return rv;
+	return __real_kmod_module_new_from_lookup(ctx, given_alias, list);
+}
+
+static void call_kmod_module_new_from_lookup(const char *modname, int lookup_rv)
+{
+	expect_not_value(__wrap_kmod_module_new_from_lookup, ctx, NULL);
+	expect_string(__wrap_kmod_module_new_from_lookup,
+		      given_alias, modname);
+	expect_not_value(__wrap_kmod_module_new_from_lookup, list,
+			 NULL);
+	will_return(__wrap_kmod_module_new_from_lookup, lookup_rv);
+}
+
 static int call_is_module_loaded(const char *modname,
-				 struct kmod_ctx *kmod_new_rv)
+				 struct kmod_ctx *kmod_new_rv, int lookup_rv)
 {
 	int rv;
 
 	expect_value(__wrap_kmod_new, dirname, NULL);
 	expect_value(__wrap_kmod_new, config_paths, NULL);
 	will_return(__wrap_kmod_new, kmod_new_rv);
+
+	if (kmod_new_rv != NULL)
+		call_kmod_module_new_from_lookup(modname, lookup_rv);
+
 	rv = is_module_loaded(modname);
 	return rv;
 }
@@ -195,7 +232,7 @@ static int call_is_module_loaded(const char *modname,
 /* Error in kmod_new() */
 static void test_is_module_loaded_err_1(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_is_module_loaded(mod_name, NULL),
+	assert_int_equal(call_is_module_loaded(mod_name, NULL, 0),
 			 -1);
 }
 
@@ -204,16 +241,21 @@ static void test_is_module_loaded_real(void **state)
 	int expected = test_module_loaded(state) ? 1 : 0;
 
 	assert_int_equal(check_proc_modules(mod_name), expected);
-	assert_int_equal(call_is_module_loaded(mod_name, WRAP_USE_REAL_PTR),
+	assert_int_equal(call_is_module_loaded(mod_name, WRAP_USE_REAL_PTR,
+					       WRAP_USE_REAL),
 			 expected);
 }
 
 static int call_load_module(const char *modname,
-			    struct kmod_ctx *kmod_new_rv)
+			    struct kmod_ctx *kmod_new_rv, int lookup_rv)
 {
 	expect_value(__wrap_kmod_new, dirname, NULL);
 	expect_value(__wrap_kmod_new, config_paths, NULL);
 	will_return(__wrap_kmod_new, kmod_new_rv);
+
+	if (kmod_new_rv != NULL)
+		call_kmod_module_new_from_lookup(modname, lookup_rv);
+
 	return load_module(modname);
 }
 
@@ -221,12 +263,13 @@ static int call_load_module(const char *modname,
 /* Error in kmod_new() */
 static void test_load_module_err_1(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(mod_name, NULL), -1);
+	assert_int_equal(call_load_module(mod_name, NULL, 0), -1);
 }
 
 static void test_load_module_real(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(mod_name, WRAP_USE_REAL_PTR), 0);
+	assert_int_equal(call_load_module(mod_name, WRAP_USE_REAL_PTR,
+					  WRAP_USE_REAL), 0);
 	set_module_loaded(state, true);
 }
 
