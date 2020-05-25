@@ -87,24 +87,6 @@ __wrap_uname(struct utsname *buf)
 	return rc;
 }
 
-struct kmod_ctx *__real_kmod_new(const char *dirname,
-				 const char *const *config_paths);
-struct kmod_ctx *
-__wrap_kmod_new(const char *dirname,
-		const char *const *config_paths)
-{
-	void *ptr;
-
-	check_expected_ptr(dirname);
-	check_expected_ptr(config_paths);
-
-	ptr = mock_ptr_type(void *);
-	if (ptr == WRAP_USE_REAL_PTR)
-		return __real_kmod_new(dirname, config_paths);
-	else
-		return ptr;
-}
-
 __attribute__((format(printf, 2, 3))) int
 __wrap_asprintf(char **strp, const char *fmt, ...)
 
@@ -177,6 +159,25 @@ static void test_kernel_dir_name3(void **state __attribute__((unused)))
 static void test_kernel_dir_name4(void **state __attribute__((unused)))
 {
 	call_kernel_dir_name(kdir, 0, -1, NULL, NULL);
+}
+
+
+struct kmod_ctx *__real_kmod_new(const char *dirname,
+				 const char *const *config_paths);
+struct kmod_ctx *
+__wrap_kmod_new(const char *dirname,
+		const char *const *config_paths)
+{
+	void *ptr;
+
+	check_expected_ptr(dirname);
+	check_expected_ptr(config_paths);
+
+	ptr = mock_ptr_type(void *);
+	if (ptr == WRAP_USE_REAL_PTR)
+		return __real_kmod_new(dirname, config_paths);
+	else
+		return ptr;
 }
 
 static int call_is_module_loaded(const char *modname,
