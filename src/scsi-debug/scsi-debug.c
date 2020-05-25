@@ -80,23 +80,43 @@ int is_module_loaded(const char *name)
 		int state;
 
 		mod = kmod_module_get_module(iter);
-		if (mod) {
-			state = kmod_module_get_initstate(mod);
-			if (state == -ENOENT || state == KMOD_MODULE_GOING) {
-				rc = 0;
-				break;
-			} else if (state < 0) {
-				log(LOG_ERR, "module \"%s\" initstate: %s\n",
+		if (!mod) {
+			rc = -1;
+			errno = EINVAL;
+			log(LOG_ERR, "invalid module in kmod list\n");
+			break;
+		}
+
+		state = kmod_module_get_initstate(mod);
+		switch(state) {
+		case KMOD_MODULE_BUILTIN:
+		case KMOD_MODULE_LIVE:
+		case KMOD_MODULE_COMING:
+			rc = 1;
+			continue;
+		case -ENOENT:
+		case KMOD_MODULE_GOING:
+			rc = 0;
+			break;
+		default:
+			if (state < 0) {
+				log(LOG_ERR,
+				    "module \"%s\" initstate: %s\n",
 				    kmod_module_get_name(mod),
 				    strerror(-state));
-				rc = -1;
-				break;
+				errno = -state;
 			} else {
-				log(LOG_DEBUG, "module \"%s\" initstate: %d\n",
-				    kmod_module_get_name(mod), state);
-				rc = 1;
+				log(LOG_ERR,
+				    "module \"%s\" initstate %d unsupported\n",
+					    kmod_module_get_name(mod),
+				    state);
+				errno = EINVAL;
 			}
+			rc = -1;
+			break;
 		}
+		if (rc != 1)
+			break;
 	}
 	return rc;
 }
@@ -121,8 +141,13 @@ int load_module(const char *name)
 			__cleanup__(cleanup_kmod_module) = NULL;
 
 		mod = kmod_module_get_module(iter);
-		if (!mod)
-			continue;
+		if (!mod) {
+			rc = -1;
+			errno = EINVAL;
+			log(LOG_ERR, "invalid module in kmod list\n");
+			break;
+		}
+
 		rc = kmod_module_insert_module(mod, 0, NULL);
 		if (rc == -EEXIST)
 			rc = 0;
@@ -130,6 +155,8 @@ int load_module(const char *name)
 			log(LOG_ERR, "kmod_module_insert_module %s: %s\n",
 			    kmod_module_get_name(mod),
 			    strerror(-rc));
+			errno = -rc;
+			rc = -1;
 			break;
 		}
 	}
