@@ -173,12 +173,18 @@ __wrap_kmod_new(const char *dirname,
 
 	check_expected_ptr(dirname);
 	check_expected_ptr(config_paths);
-
 	ptr = mock_ptr_type(void *);
 	if (ptr == WRAP_USE_REAL_PTR)
 		return __real_kmod_new(dirname, config_paths);
 	else
 		return ptr;
+}
+
+static void call_kmod_new(struct kmod_ctx *kmod_new_rv)
+{
+	expect_value(__wrap_kmod_new, dirname, NULL);
+	expect_value(__wrap_kmod_new, config_paths, NULL);
+	will_return(__wrap_kmod_new, kmod_new_rv);
 }
 
 int __real_kmod_module_new_from_lookup(struct kmod_ctx *ctx,
@@ -229,12 +235,10 @@ static int call_is_module_loaded(const char *modname,
 {
 	int rv;
 
-	expect_value(__wrap_kmod_new, dirname, NULL);
-	expect_value(__wrap_kmod_new, config_paths, NULL);
-	will_return(__wrap_kmod_new, kmod_new_rv);
-
+	call_kmod_new(kmod_new_rv);
 	if (kmod_new_rv != NULL)
-		call_kmod_module_new_from_lookup(modname, lookup_rv, lookup_list);
+		call_kmod_module_new_from_lookup(modname,
+						 lookup_rv, lookup_list);
 
 	rv = is_module_loaded(modname);
 	return rv;
@@ -285,10 +289,7 @@ static int call_load_module(const char *modname,
 			    struct kmod_ctx *kmod_new_rv,
 			    int lookup_rv, void *lookup_list)
 {
-	expect_value(__wrap_kmod_new, dirname, NULL);
-	expect_value(__wrap_kmod_new, config_paths, NULL);
-	will_return(__wrap_kmod_new, kmod_new_rv);
-
+	call_kmod_new(kmod_new_rv);
 	if (kmod_new_rv != NULL)
 		call_kmod_module_new_from_lookup(modname,
 						 lookup_rv, lookup_list);
