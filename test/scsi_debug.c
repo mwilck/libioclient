@@ -198,23 +198,34 @@ __wrap_kmod_module_new_from_lookup(struct kmod_ctx *ctx,
 	assert_ptr_equal(*list, NULL);
 
 	rv = mock_type(int);
+	if (rv == 0)
+		*list = mock_ptr_type(void *);
 	if (rv != WRAP_USE_REAL)
 		return rv;
 	return __real_kmod_module_new_from_lookup(ctx, given_alias, list);
 }
 
-static void call_kmod_module_new_from_lookup(const char *modname, int lookup_rv)
+static void call_kmod_module_new_from_lookup(const char *modname, int lookup_rv,
+					     void *lookup_list)
 {
 	expect_not_value(__wrap_kmod_module_new_from_lookup, ctx, NULL);
-	expect_string(__wrap_kmod_module_new_from_lookup,
-		      given_alias, modname);
+	if (modname == NULL)
+		expect_value(__wrap_kmod_module_new_from_lookup,
+			     given_alias, NULL);
+	else
+		expect_string(__wrap_kmod_module_new_from_lookup,
+			      given_alias, modname);
 	expect_not_value(__wrap_kmod_module_new_from_lookup, list,
 			 NULL);
+
 	will_return(__wrap_kmod_module_new_from_lookup, lookup_rv);
+	if (lookup_rv == 0)
+		will_return(__wrap_kmod_module_new_from_lookup, lookup_list);
 }
 
 static int call_is_module_loaded(const char *modname,
-				 struct kmod_ctx *kmod_new_rv, int lookup_rv)
+				 struct kmod_ctx *kmod_new_rv,
+				 int lookup_rv, void *lookup_list)
 {
 	int rv;
 
@@ -223,7 +234,7 @@ static int call_is_module_loaded(const char *modname,
 	will_return(__wrap_kmod_new, kmod_new_rv);
 
 	if (kmod_new_rv != NULL)
-		call_kmod_module_new_from_lookup(modname, lookup_rv);
+		call_kmod_module_new_from_lookup(modname, lookup_rv, lookup_list);
 
 	rv = is_module_loaded(modname);
 	return rv;
@@ -232,7 +243,31 @@ static int call_is_module_loaded(const char *modname,
 /* Error in kmod_new() */
 static void test_is_module_loaded_err_1(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_is_module_loaded(mod_name, NULL, 0),
+	assert_int_equal(call_is_module_loaded(mod_name, NULL, 0, NULL),
+			 -1);
+}
+
+/* Error in kmod_module_new_from_lookup(): alias = NULL */
+static void test_is_module_loaded_err_2(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_is_module_loaded(NULL, WRAP_USE_REAL_PTR,
+					       WRAP_USE_REAL, NULL),
+			 -1);
+}
+
+/* Error in kmod_module_new_from_lookup(): other */
+static void test_is_module_loaded_err_3(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_is_module_loaded(NULL, WRAP_USE_REAL_PTR,
+					       -ENOMEM, NULL),
+			 -1);
+}
+
+/* module not found in kmod_module_new_from_lookup() */
+static void test_is_module_loaded_empty(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_is_module_loaded(NULL, WRAP_USE_REAL_PTR,
+					       0, NULL),
 			 -1);
 }
 
@@ -242,19 +277,20 @@ static void test_is_module_loaded_real(void **state)
 
 	assert_int_equal(check_proc_modules(mod_name), expected);
 	assert_int_equal(call_is_module_loaded(mod_name, WRAP_USE_REAL_PTR,
-					       WRAP_USE_REAL),
+					       WRAP_USE_REAL, NULL),
 			 expected);
 }
 
 static int call_load_module(const char *modname,
-			    struct kmod_ctx *kmod_new_rv, int lookup_rv)
+			    struct kmod_ctx *kmod_new_rv,
+			    int lookup_rv, void *lookup_list)
 {
 	expect_value(__wrap_kmod_new, dirname, NULL);
 	expect_value(__wrap_kmod_new, config_paths, NULL);
 	will_return(__wrap_kmod_new, kmod_new_rv);
 
 	if (kmod_new_rv != NULL)
-		call_kmod_module_new_from_lookup(modname, lookup_rv);
+		call_kmod_module_new_from_lookup(modname, lookup_rv, lookup_list);
 
 	return load_module(modname);
 }
@@ -263,13 +299,13 @@ static int call_load_module(const char *modname,
 /* Error in kmod_new() */
 static void test_load_module_err_1(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(mod_name, NULL, 0), -1);
+	assert_int_equal(call_load_module(mod_name, NULL, 0, NULL), -1);
 }
 
 static void test_load_module_real(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_load_module(mod_name, WRAP_USE_REAL_PTR,
-					  WRAP_USE_REAL), 0);
+					  WRAP_USE_REAL, NULL), 0);
 	set_module_loaded(state, true);
 }
 
@@ -310,6 +346,9 @@ static int run_mock_modload_tests(void)
 {
 	const struct CMUnitTest mock_modload_tests[] = {
 		cmocka_unit_test(test_is_module_loaded_err_1),
+		cmocka_unit_test(test_is_module_loaded_err_2),
+		cmocka_unit_test(test_is_module_loaded_err_3),
+		cmocka_unit_test(test_is_module_loaded_empty),
 		cmocka_unit_test(test_load_module_err_1),
 		cmocka_unit_test(test_unload_module_err_1),
 	};
