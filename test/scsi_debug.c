@@ -191,6 +191,13 @@ static int call_is_module_loaded(const char *modname,
 	return rv;
 }
 
+/* Error in kmod_new() */
+static void test_is_module_loaded_err_1(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_is_module_loaded(mod_name, NULL),
+			 -1);
+}
+
 static void test_is_module_loaded_real(void **state)
 {
 	int expected = test_module_loaded(state) ? 1 : 0;
@@ -210,6 +217,12 @@ static int call_load_module(const char *modname,
 }
 
 
+/* Error in kmod_new() */
+static void test_load_module_err_1(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_load_module(mod_name, NULL), -1);
+}
+
 static void test_load_module_real(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_load_module(mod_name, WRAP_USE_REAL_PTR), 0);
@@ -223,6 +236,12 @@ static int call_unload_module(const char *modname,
 	expect_value(__wrap_kmod_new, config_paths, NULL);
 	will_return(__wrap_kmod_new, kmod_new_rv);
 	return unload_module(modname);
+}
+
+/* Error in kmod_new() */
+static void test_unload_module_err_1(void **state __attribute__((unused)))
+{
+	assert_int_equal(call_unload_module(mod_name, NULL), -1);
 }
 
 static void test_unload_module_real(void **state __attribute__((unused)))
@@ -241,6 +260,17 @@ static int run_kernel_dir_name_tests(void)
 	};
 
 	return cmocka_run_group_tests(kernel_dir_name_tests, NULL, NULL);
+}
+
+static int run_mock_modload_tests(void)
+{
+	const struct CMUnitTest mock_modload_tests[] = {
+		cmocka_unit_test(test_is_module_loaded_err_1),
+		cmocka_unit_test(test_load_module_err_1),
+		cmocka_unit_test(test_unload_module_err_1),
+	};
+
+	return cmocka_run_group_tests(mock_modload_tests, NULL, NULL);
 }
 
 static int real_modload_setup(void **state)
@@ -296,6 +326,7 @@ int main(void)
 	int rv = 0;
 
 	rv += run_kernel_dir_name_tests();
+	rv += run_mock_modload_tests();
 	rv += run_real_modload_tests();
 	return rv;
 }
