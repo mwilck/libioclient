@@ -12,7 +12,9 @@
 #include <kmod/libkmod.h>
 
 #define WRAP_USE_REAL ((int) 0xaffedead)
-#define WRAP_USE_REAL_PTR ((void*) WRAP_USE_REAL)
+#define WRAP_USE_REAL_PTR ((void *) WRAP_USE_REAL)
+#define WRAP_SKIP ((int) 0xdeadaffe)
+#define WRAP_SKIP_PTR ((void *) WRAP_SKIP)
 
 struct sdbg_test_state {
 	bool module_loaded;
@@ -42,6 +44,11 @@ static void cleanup_free_charp(char **p)
 		free(*p);
 }
 
+static void cleanup_free_voidp(void **p)
+{
+	if (p)
+		free(*p);
+}
 
 static int check_proc_modules(const char *modname)
 {
@@ -163,8 +170,10 @@ static void test_kernel_dir_name4(void **state __attribute__((unused)))
 }
 
 
-struct kmod_ctx *__real_kmod_new(const char *dirname,
-				 const char *const *config_paths);
+struct kmod_ctx *
+__real_kmod_new(const char *dirname,
+		const char *const *config_paths);
+
 struct kmod_ctx *
 __wrap_kmod_new(const char *dirname,
 		const char *const *config_paths)
@@ -187,9 +196,10 @@ static void call_kmod_new(struct kmod_ctx *kmod_new_rv)
 	will_return(__wrap_kmod_new, kmod_new_rv);
 }
 
-int __real_kmod_module_new_from_lookup(struct kmod_ctx *ctx,
-				       const char *given_alias,
-				       struct kmod_list **list);
+int
+__real_kmod_module_new_from_lookup(struct kmod_ctx *ctx,
+				   const char *given_alias,
+				   struct kmod_list **list);
 
 int
 __wrap_kmod_module_new_from_lookup(struct kmod_ctx *ctx,
@@ -229,16 +239,92 @@ static void call_kmod_module_new_from_lookup(const char *modname, int lookup_rv,
 		will_return(__wrap_kmod_module_new_from_lookup, lookup_list);
 }
 
+
+struct kmod_module *
+__real_kmod_module_get_module(const struct kmod_list *entry);
+
+struct kmod_module *
+__wrap_kmod_module_get_module(const struct kmod_list *entry)
+{
+	struct kmod_module *rv;
+
+	check_expected_ptr(entry);
+	rv = mock_ptr_type(struct kmod_module *);
+	if (rv != WRAP_USE_REAL_PTR)
+		return rv;
+	return __real_kmod_module_get_module(entry);
+}
+
+static void call_kmod_module_get_module(struct kmod_module *get_module_rv)
+{
+	if (get_module_rv == WRAP_SKIP_PTR)
+		return;
+	expect_not_value(__wrap_kmod_module_get_module, entry, NULL);
+	will_return(__wrap_kmod_module_get_module, get_module_rv);
+}
+
+/*
+ * Copied verbatim from kmod-27.
+ * This will fail if the kmod internal structures change.
+ * Tell me how else to fake this.
+ */
+struct __kmod_list_node {
+	struct __kmod_list_node *next, *prev;
+};
+
+struct __kmod_list {
+	struct __kmod_list_node node;
+	void *data;
+};
+
+static struct kmod_list *mock_kmod_list(int n_elem)
+{
+	struct __kmod_list *arr;
+	int i;
+
+	if (n_elem <= 0)
+		return NULL;
+	arr = calloc(n_elem, sizeof(*arr));
+	assert_non_null(arr);
+	for (i = 0; i < n_elem - 1; i++) {
+		arr[i].node.next = &arr[i + 1].node;
+		arr[i+1].node.prev = &arr[i].node;
+	}
+	return (struct kmod_list*)arr;
+}
+
 static int call_is_module_loaded(const char *modname,
 				 struct kmod_ctx *kmod_new_rv,
-				 int lookup_rv, void *lookup_list)
+				 int lookup_rv, int n_lookup_list,
+				 ...)
 {
 	int rv;
 
 	call_kmod_new(kmod_new_rv);
-	if (kmod_new_rv != NULL)
+	if (kmod_new_rv != NULL) {
+		/*
+		 * Using (void *) here to avoid having to define a type-specific
+		 * cleanup function
+		 */
+		void *_ptr __cleanup__(cleanup_free_voidp) = NULL;
+		struct kmod_list *lst, *iter;
+		va_list va;
+
+		/* make sure lst is freed on return */
+		_ptr = lst = mock_kmod_list(n_lookup_list);
+
 		call_kmod_module_new_from_lookup(modname,
-						 lookup_rv, lookup_list);
+						 lookup_rv, lst);
+		va_start(va, n_lookup_list);
+		kmod_list_foreach(iter, lst) {
+			void *get_module_rv = va_arg(va, void*);
+
+			call_kmod_module_get_module(get_module_rv);
+			if (get_module_rv == NULL)
+				break;
+		}
+		va_end(va);
+	}
 
 	rv = is_module_loaded(modname);
 	return rv;
@@ -247,7 +333,7 @@ static int call_is_module_loaded(const char *modname,
 /* Error in kmod_new() */
 static void test_is_module_loaded_err_1(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_is_module_loaded(mod_name, NULL, 0, NULL),
+	assert_int_equal(call_is_module_loaded(mod_name, NULL, 0, 0),
 			 -1);
 }
 
@@ -255,7 +341,7 @@ static void test_is_module_loaded_err_1(void **state __attribute__((unused)))
 static void test_is_module_loaded_err_2(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_is_module_loaded(NULL, WRAP_USE_REAL_PTR,
-					       WRAP_USE_REAL, NULL),
+					       WRAP_USE_REAL, 0),
 			 -1);
 }
 
@@ -263,7 +349,7 @@ static void test_is_module_loaded_err_2(void **state __attribute__((unused)))
 static void test_is_module_loaded_err_3(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_is_module_loaded(NULL, WRAP_USE_REAL_PTR,
-					       -ENOMEM, NULL),
+					       -ENOMEM, 0),
 			 -1);
 }
 
@@ -271,7 +357,7 @@ static void test_is_module_loaded_err_3(void **state __attribute__((unused)))
 static void test_is_module_loaded_empty(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_is_module_loaded(NULL, WRAP_USE_REAL_PTR,
-					       0, NULL),
+					       0, 0),
 			 -1);
 }
 
@@ -280,19 +366,37 @@ static void test_is_module_loaded_real(void **state)
 	int expected = test_module_loaded(state) ? 1 : 0;
 
 	assert_int_equal(check_proc_modules(mod_name), expected);
+	/* pass n_lookup_list = 1: assume only one module in list */
 	assert_int_equal(call_is_module_loaded(mod_name, WRAP_USE_REAL_PTR,
-					       WRAP_USE_REAL, NULL),
+					       WRAP_USE_REAL,
+					       1, WRAP_USE_REAL_PTR),
 			 expected);
 }
 
 static int call_load_module(const char *modname,
 			    struct kmod_ctx *kmod_new_rv,
-			    int lookup_rv, void *lookup_list)
+			    int lookup_rv, int n_lookup_list, ...)
 {
 	call_kmod_new(kmod_new_rv);
-	if (kmod_new_rv != NULL)
+	if (kmod_new_rv != NULL) {
+		/* See call_is_module_loaded */
+		void *_ptr __cleanup__(cleanup_free_voidp) = NULL;
+		struct kmod_list *lst, *iter;
+		va_list va;
+
+		_ptr = lst = mock_kmod_list(n_lookup_list);
 		call_kmod_module_new_from_lookup(modname,
-						 lookup_rv, lookup_list);
+						 lookup_rv, lst);
+		va_start(va, n_lookup_list);
+		kmod_list_foreach(iter, lst) {
+			void *get_module_rv = va_arg(va, void*);
+
+			call_kmod_module_get_module(get_module_rv);
+			if (get_module_rv == NULL)
+				break;
+		}
+		va_end(va);
+	}
 
 	return load_module(modname);
 }
@@ -301,14 +405,14 @@ static int call_load_module(const char *modname,
 /* Error in kmod_new() */
 static void test_load_module_err_1(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(mod_name, NULL, 0, NULL), -1);
+	assert_int_equal(call_load_module(mod_name, NULL, 0, 0), -1);
 }
 
 /* Error in kmod_module_new_from_lookup(): alias = NULL */
 static void test_load_module_err_2(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
-					  WRAP_USE_REAL, NULL),
+					  WRAP_USE_REAL, 0),
 			 -1);
 }
 
@@ -316,7 +420,7 @@ static void test_load_module_err_2(void **state __attribute__((unused)))
 static void test_load_module_err_3(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
-					  -ENOMEM, NULL),
+					  -ENOMEM, 0),
 			 -1);
 }
 
@@ -324,14 +428,16 @@ static void test_load_module_err_3(void **state __attribute__((unused)))
 static void test_load_module_empty(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
-					  0, NULL),
+					  0, 0),
 			 -1);
 }
 
 static void test_load_module_real(void **state __attribute__((unused)))
 {
 	assert_int_equal(call_load_module(mod_name, WRAP_USE_REAL_PTR,
-					  WRAP_USE_REAL, NULL), 0);
+					  WRAP_USE_REAL,
+					  1, WRAP_USE_REAL_PTR),
+			 0);
 	set_module_loaded(state, true);
 }
 
