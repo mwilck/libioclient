@@ -113,13 +113,16 @@ int is_module_loaded(const char *name)
 			} else {
 				log(LOG_ERR,
 				    "module \"%s\" initstate %d unsupported\n",
-					    kmod_module_get_name(mod),
+				    kmod_module_get_name(mod),
 				    state);
 				errno = EINVAL;
 			}
 			rc = -1;
 			break;
 		}
+		log(LOG_DEBUG, "module \"%s\" initstate %d\n",
+		    kmod_module_get_name(mod),
+		    state);
 		if (rc != 1)
 			break;
 	}
@@ -153,7 +156,9 @@ int load_module(const char *name)
 			break;
 		}
 
-		rc = kmod_module_insert_module(mod, 0, NULL);
+		rc = kmod_module_probe_insert_module(mod,
+						     KMOD_PROBE_IGNORE_COMMAND,
+						     NULL, NULL, NULL, NULL);
 		if (rc == -EEXIST)
 			rc = 0;
 		if (rc < 0) {
