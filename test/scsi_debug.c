@@ -1,6 +1,7 @@
 #define _GNU_SOURCE 1
 #include "cmocka-inc.h"
 #include <ioc-util.h>
+#include <ioc.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,7 @@ struct sdbg_test_state {
 };
 
 static const char mod_name[] = "scsi_debug";
+//static const char mod_name[] = "tcm_qla2xxx";
 
 static bool test_module_loaded(void **state)
 {
@@ -543,6 +545,7 @@ int main(void)
 {
 	int rv = 0;
 
+	ioc_init();
 	rv += run_kernel_dir_name_tests();
 	rv += run_mock_modload_tests();
 	rv += run_real_modload_tests();
