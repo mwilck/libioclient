@@ -81,6 +81,11 @@ int is_module_loaded(const char *name)
 
 		mod = kmod_module_get_module(iter);
 		if (!mod) {
+			/*
+			 * In current kmod code (kmod-27), this can't happen
+			 * unless iter itself is NULL, in which case the loop
+			 * would have been exited.
+			 */
 			rc = -1;
 			errno = EINVAL;
 			log(LOG_ERR, "invalid module in kmod list\n");
