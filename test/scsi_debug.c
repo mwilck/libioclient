@@ -986,19 +986,54 @@ static void test_load_module_real(void **state __attribute__((unused)))
 	set_module_loaded(state, true);
 }
 
+int
+__real_kmod_module_new_from_name(struct kmod_ctx *ctx,
+				 const char *name,
+				 struct kmod_module **mod);
+
+int
+__wrap_kmod_module_new_from_name(struct kmod_ctx *ctx,
+				 const char *name,
+				 struct kmod_module **mod)
+{
+	int rv;
+
+	check_expected_ptr(ctx);
+	check_expected_ptr(name);
+	check_expected_ptr(mod);
+	rv = mock_type(int);
+	if (rv == 0) {
+		*mod = WRAP_DUMMY_PTR;
+		return 0;
+	} else if (rv != WRAP_USE_REAL)
+		return rv;
+	else
+		return __real_kmod_module_new_from_name(ctx, name, mod);
+}
+
+static void call_kmod_module_new_from_name(int rv)
+{
+	expect_not_value(__wrap_kmod_module_new_from_name, ctx, NULL);
+	expect_not_value(__wrap_kmod_module_new_from_name, name, NULL);
+	expect_not_value(__wrap_kmod_module_new_from_name, mod, NULL);
+	will_return(__wrap_kmod_module_new_from_name, rv);
+}
+
 struct mock_unload_module {
 	const char *modname;
 	struct kmod_ctx *kmod_new_rv;
+	int new_mod_rv;
 };
 
 static int call_unload_module(struct mock_unload_module *mock)
 {
-	expect_value(__wrap_kmod_new, dirname, NULL);
-	expect_value(__wrap_kmod_new, config_paths, NULL);
-	will_return(__wrap_kmod_new, mock->kmod_new_rv);
+	call_kmod_new(mock->kmod_new_rv);
 	if (mock->kmod_new_rv) {
-		expect_not_value(__wrap_kmod_module_unref, mod, NULL);
-		will_return(__wrap_kmod_module_unref, mock->kmod_new_rv);
+		call_kmod_module_new_from_name(mock->new_mod_rv);
+		if (mock->new_mod_rv == 0)
+			call_kmod_module_unref(WRAP_DUMMY_PTR);
+		else if (mock->new_mod_rv == WRAP_USE_REAL)
+			call_kmod_module_unref(WRAP_USE_REAL_PTR);
 	}
 	return unload_module(mock->modname);
 }
@@ -1017,6 +1052,7 @@ static int real_unload_module(const char *modname)
 	struct mock_unload_module mock = {
 		.modname = modname,
 		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.new_mod_rv = WRAP_USE_REAL,
 	};
 
 	return call_unload_module(&mock);
