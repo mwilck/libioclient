@@ -309,11 +309,14 @@ static struct kmod_list *mock_kmod_list(int n_elem)
 		return NULL;
 	arr = calloc(n_elem, sizeof(*arr));
 	assert_non_null(arr);
-	for (i = 0; i < n_elem - 1; i++) {
-		arr[i].node.next = &arr[i + 1].node;
-		arr[i+1].node.prev = &arr[i].node;
+
+	for (i = 0; i < n_elem; i++) {
+		int nx = i < n_elem - 1 ? i + 1 : 0;
+
+		arr[i].node.next = &arr[nx].node;
+		arr[nx].node.prev = &arr[i].node;
 	}
-	return (struct kmod_list*)arr;
+	return (struct kmod_list *)arr;
 }
 
 struct mock_is_module_loaded_loop {
