@@ -60,10 +60,8 @@ static int lookup_module(struct kmod_ctx *ctx, const char *name,
 	return rc;
 }
 
-static bool real_name_matches(const struct kmod_module *mod, const char *name)
+static bool real_name_matches(const char *real_name, const char *name)
 {
-	const char *real_name = kmod_module_get_name(mod);
-
 	if (strncmp(name, real_name, PATH_MAX)) {
 		log(LOG_DEBUG, "name mismatch: \"%s\" != \"%s\"\n",
 		    name, real_name);
@@ -92,6 +90,7 @@ int is_module_loaded(const char *name)
 		struct kmod_module *mod
 			__cleanup__(cleanup_kmod_module) = NULL;
 		int state;
+		const char *real_name;
 
 		mod = kmod_module_get_module(iter);
 		if (!mod) {
@@ -105,8 +104,9 @@ int is_module_loaded(const char *name)
 			log(LOG_ERR, "invalid module in kmod list\n");
 			break;
 		}
+		real_name = kmod_module_get_name(mod);
 		/* kmod_module_new_from_lookup() may have matched by alias */
-		if (!real_name_matches(mod, name))
+		if (!real_name_matches(real_name, name))
 			continue;
 		state = kmod_module_get_initstate(mod);
 		switch(state) {
@@ -122,22 +122,19 @@ int is_module_loaded(const char *name)
 			if (state < 0) {
 				log(LOG_ERR,
 				    "module \"%s\" initstate: %s\n",
-				    kmod_module_get_name(mod),
-				    strerror(-state));
+				    real_name, strerror(-state));
 				errno = -state;
 			} else {
 				log(LOG_ERR,
 				    "module \"%s\" initstate %d unsupported\n",
-				    kmod_module_get_name(mod),
-				    state);
+				    real_name, state);
 				errno = EINVAL;
 			}
 			rc = -1;
 			break;
 		}
 		log(LOG_DEBUG, "module \"%s\" initstate %d\n",
-		    kmod_module_get_name(mod),
-		    state);
+		    real_name, state);
 		if (rc != 0)
 			break;
 	}
@@ -162,6 +159,7 @@ int load_module(const char *name)
 	kmod_list_foreach(iter, lst) {
 		struct kmod_module *mod
 			__cleanup__(cleanup_kmod_module) = NULL;
+		const char *real_name;
 
 		mod = kmod_module_get_module(iter);
 		if (!mod) {
@@ -170,7 +168,8 @@ int load_module(const char *name)
 			log(LOG_ERR, "invalid module in kmod list\n");
 			break;
 		}
-		if (!real_name_matches(mod, name))
+		real_name = kmod_module_get_name(mod);
+		if (!real_name_matches(real_name, name))
 			continue;
 
 		rc = kmod_module_probe_insert_module(mod,
@@ -178,8 +177,7 @@ int load_module(const char *name)
 						     NULL, NULL, NULL, NULL);
 		if (rc < 0) {
 			log(LOG_ERR, "kmod_module_insert_module %s: %s\n",
-			    kmod_module_get_name(mod),
-			    strerror(-rc));
+			    real_name, strerror(-rc));
 			errno = -rc;
 			rc = -1;
 			break;
