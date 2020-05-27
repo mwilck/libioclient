@@ -209,6 +209,28 @@ static void call_kmod_new(struct kmod_ctx *kmod_new_rv)
 	will_return(__wrap_kmod_new, kmod_new_rv);
 }
 
+struct kmod_ctx *
+__real_kmod_unref(struct kmod_ctx *ctx);
+
+struct kmod_ctx *
+__wrap_kmod_unref(struct kmod_ctx *ctx)
+{
+	struct kmod_ctx *rv;
+
+	check_expected_ptr(ctx);
+	rv = mock_ptr_type(struct kmod_ctx *);
+	if (rv != WRAP_USE_REAL_PTR)
+		return rv;
+	else
+		return __real_kmod_unref(ctx);
+}
+
+static void call_kmod_unref(struct kmod_ctx *rv)
+{
+	expect_not_value(__wrap_kmod_unref, ctx, NULL);
+	will_return(__wrap_kmod_unref, rv);
+}
+
 int
 __real_kmod_module_new_from_lookup(struct kmod_ctx *ctx,
 				   const char *given_alias,
@@ -449,6 +471,7 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 		}
 		call_kmod_module_unref_list(mock->lookup_rv,
 					    mock->n_lookup_list);
+		call_kmod_unref(mock->kmod_new_rv);
 	}
 
 	rv = is_module_loaded(mock->modname);
@@ -793,6 +816,7 @@ static int call_load_module(struct mock_load_module *mock)
 		}
 		call_kmod_module_unref_list(mock->lookup_rv,
 					    mock->n_lookup_list);
+		call_kmod_unref(mock->kmod_new_rv);
 	}
 
 	return load_module(mock->modname);
@@ -1034,6 +1058,7 @@ static int call_unload_module(struct mock_unload_module *mock)
 			call_kmod_module_unref(WRAP_DUMMY_PTR);
 		else if (mock->new_mod_rv == WRAP_USE_REAL)
 			call_kmod_module_unref(WRAP_USE_REAL_PTR);
+		call_kmod_unref(mock->kmod_new_rv);
 	}
 	return unload_module(mock->modname);
 }
