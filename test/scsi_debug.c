@@ -592,24 +592,45 @@ static void test_load_module_real(void **state __attribute__((unused)))
 	set_module_loaded(state, true);
 }
 
-static int call_unload_module(const char *modname,
-			      struct kmod_ctx *kmod_new_rv)
+struct mock_unload_module {
+	const char *modname;
+	struct kmod_ctx *kmod_new_rv;
+};
+
+static int call_unload_module(struct mock_unload_module *mock)
 {
 	expect_value(__wrap_kmod_new, dirname, NULL);
 	expect_value(__wrap_kmod_new, config_paths, NULL);
-	will_return(__wrap_kmod_new, kmod_new_rv);
-	return unload_module(modname);
+	will_return(__wrap_kmod_new, mock->kmod_new_rv);
+	if (mock->kmod_new_rv) {
+		expect_not_value(__wrap_kmod_module_unref, mod, NULL);
+		will_return(__wrap_kmod_module_unref, mock->kmod_new_rv);
+	}
+	return unload_module(mock->modname);
 }
 
 /* Error in kmod_new() */
 static void test_unload_module_err_1(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_unload_module(mod_name, NULL), -1);
+	struct mock_unload_module mock = {
+		.modname = mod_name,
+	};
+	assert_int_equal(call_unload_module(&mock), -1);
+}
+
+static int real_unload_module(const char *modname)
+{
+	struct mock_unload_module mock = {
+		.modname = modname,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+	};
+
+	return call_unload_module(&mock);
 }
 
 static void test_unload_module_real(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_unload_module(mod_name, WRAP_USE_REAL_PTR), 0);
+	assert_int_equal(real_unload_module(mod_name), 0);
 	set_module_loaded(state, false);
 }
 
@@ -647,7 +668,7 @@ static int real_modload_setup(void **state)
 	struct sdbg_test_state *st;
 
 	/* Make sure module is unloaded initially */
-	if (call_unload_module(mod_name, WRAP_USE_REAL_PTR) == -1)
+	if (real_unload_module(mod_name) == -1)
 		return -1;
 	st = calloc(1, sizeof(*st));
 	if (!st)
@@ -661,7 +682,7 @@ static int real_modload_teardown(void **state)
 {
 	/* Unload module after test */
 	free(*state);
-	if (call_unload_module(mod_name, WRAP_USE_REAL_PTR) == -1)
+	if (real_unload_module(mod_name) == -1)
 		return -1;
 	return 0;
 }
