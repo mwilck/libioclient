@@ -451,7 +451,7 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 }
 
 /* Error in kmod_new() */
-static void test_is_module_loaded_err_1(void **state __attribute__((unused)))
+static void test_is_module_loaded_err_new(void **state __attribute__((unused)))
 {
 	struct mock_is_module_loaded mock = { .modname = mod_name };
 
@@ -459,7 +459,7 @@ static void test_is_module_loaded_err_1(void **state __attribute__((unused)))
 }
 
 /* Error in kmod_module_new_from_lookup(): alias = NULL */
-static void test_is_module_loaded_err_2(void **state __attribute__((unused)))
+static void test_is_module_loaded_bad_name(void **state __attribute__((unused)))
 {
 	struct mock_is_module_loaded mock = {
 		.modname = NULL,
@@ -470,7 +470,8 @@ static void test_is_module_loaded_err_2(void **state __attribute__((unused)))
 }
 
 /* Error in kmod_module_new_from_lookup(): other */
-static void test_is_module_loaded_err_3(void **state __attribute__((unused)))
+static void test_is_module_loaded_err_lookup(void **state
+					     __attribute__((unused)))
 {
 	struct mock_is_module_loaded mock = {
 		.modname = mod_name,
@@ -493,7 +494,8 @@ static void test_is_module_loaded_empty(void **state __attribute__((unused)))
 }
 
 /* module found, but different name */
-static void test_is_module_loaded_err_4(void **state __attribute__((unused)))
+static void test_is_module_loaded_err_mismatch(void **state
+					       __attribute__((unused)))
 {
 	enum { N_LOOP = 1 };
 	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
@@ -523,7 +525,7 @@ static const struct mock_is_module_loaded_loop mock_imll_good = {
 };
 
 /* list of 2 entries, first wrong, 2nd good */
-static void test_is_module_loaded_good_1(void **state __attribute__((unused)))
+static void test_is_module_loaded_live(void **state __attribute__((unused)))
 {
 	enum { N_LOOP = 2 };
 	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
@@ -538,7 +540,124 @@ static void test_is_module_loaded_good_1(void **state __attribute__((unused)))
 	};
 
 	loop_rvs[1].initstate = KMOD_MODULE_LIVE;
+	assert_int_equal(call_is_module_loaded(&mock), 1);
+}
+
+/* list of 2 entries, first wrong, 2nd good but going */
+static void test_is_module_loaded_going(void **state __attribute__((unused)))
+{
+	enum { N_LOOP = 2 };
+	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
+		mock_imll_wrong, mock_imll_good
+	};
+	struct mock_is_module_loaded mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+	};
+
+	loop_rvs[1].initstate = KMOD_MODULE_GOING;
 	assert_int_equal(call_is_module_loaded(&mock), 0);
+}
+
+/* list of 2 entries, first good, 2nd bad but never looked at */
+static void test_is_module_loaded_coming(void **state __attribute__((unused)))
+{
+	enum { N_LOOP = 2 };
+	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
+		mock_imll_good, mock_imll_wrong,
+	};
+	struct mock_is_module_loaded mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+	};
+
+	loop_rvs[1].initstate = KMOD_MODULE_COMING;
+	assert_int_equal(call_is_module_loaded(&mock), 1);
+}
+
+/* Invalid init state */
+static void test_is_module_loaded_bad_state(void **state
+					    __attribute__((unused)))
+{
+	enum { N_LOOP = 1 };
+	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
+		mock_imll_good,
+	};
+	struct mock_is_module_loaded mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+	};
+
+	loop_rvs[0].initstate = 1000;
+	assert_int_equal(call_is_module_loaded(&mock), -1);
+}
+
+/* Error init state */
+static void test_is_module_loaded_err_state(void **state
+					    __attribute__((unused)))
+{
+	enum { N_LOOP = 1 };
+	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
+		mock_imll_good,
+	};
+	struct mock_is_module_loaded mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+	};
+
+	loop_rvs[0].initstate = -ENODEV;
+	assert_int_equal(call_is_module_loaded(&mock), -1);
+}
+
+/* ENOENT is "no" */
+static void test_is_module_loaded_enoent_state(void **state
+					       __attribute__((unused)))
+{
+	enum { N_LOOP = 1 };
+	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
+		mock_imll_good,
+	};
+	struct mock_is_module_loaded mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+	};
+
+	loop_rvs[0].initstate = -ENOENT;
+	assert_int_equal(call_is_module_loaded(&mock), 0);
+}
+
+/* BUILTIN is "yes" */
+static void test_is_module_loaded_builtin(void **state __attribute__((unused)))
+{
+	enum { N_LOOP = 1 };
+	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
+		mock_imll_good,
+	};
+	struct mock_is_module_loaded mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+	};
+
+	loop_rvs[0].initstate = KMOD_MODULE_BUILTIN;
+	assert_int_equal(call_is_module_loaded(&mock), 1);
 }
 
 static const struct mock_is_module_loaded_loop
@@ -618,7 +737,7 @@ static int call_load_module(struct mock_load_module *mock)
 
 
 /* Error in kmod_new() */
-static void test_load_module_err_1(void **state __attribute__((unused)))
+static void test_load_module_err_new(void **state __attribute__((unused)))
 {
 	struct mock_load_module mock = {
 		.modname = mod_name,
@@ -628,7 +747,7 @@ static void test_load_module_err_1(void **state __attribute__((unused)))
 }
 
 /* Error in kmod_module_new_from_lookup(): alias = NULL */
-static void test_load_module_err_2(void **state __attribute__((unused)))
+static void test_load_module_err_bad_name(void **state __attribute__((unused)))
 {
 	struct mock_load_module mock = {
 		.modname = NULL,
@@ -640,7 +759,7 @@ static void test_load_module_err_2(void **state __attribute__((unused)))
 }
 
 /* Error in kmod_module_new_from_lookup(): other */
-static void test_load_module_err_3(void **state __attribute__((unused)))
+static void test_load_module_err_lookup(void **state __attribute__((unused)))
 {
 	struct mock_load_module mock = {
 		.modname = mod_name,
@@ -665,7 +784,7 @@ static void test_load_module_empty(void **state __attribute__((unused)))
 }
 
 /* module found, but different name => error */
-static void test_load_module_err_4(void **state __attribute__((unused)))
+static void test_load_module_err_mismatch(void **state __attribute__((unused)))
 {
 	enum { N_LOOP = 1 };
 	struct mock_load_module_loop loop_rvs[N_LOOP] = {
@@ -684,7 +803,7 @@ static void test_load_module_err_4(void **state __attribute__((unused)))
 	assert_int_equal(call_load_module(&mock), -1);
 }
 
-static struct mock_load_module_loop real_mock_load_module_loop = {
+static const struct mock_load_module_loop real_mock_load_module_loop = {
 	.get_module_rv = WRAP_USE_REAL_PTR,
 	.get_name_rv = WRAP_USE_REAL_PTR,
 };
@@ -725,7 +844,7 @@ static int call_unload_module(struct mock_unload_module *mock)
 }
 
 /* Error in kmod_new() */
-static void test_unload_module_err_1(void **state __attribute__((unused)))
+static void test_unload_module_err_new(void **state __attribute__((unused)))
 {
 	struct mock_unload_module mock = {
 		.modname = mod_name,
@@ -764,18 +883,24 @@ static int run_kernel_dir_name_tests(void)
 static int run_mock_modload_tests(void)
 {
 	const struct CMUnitTest mock_modload_tests[] = {
-		cmocka_unit_test(test_is_module_loaded_err_1),
-		cmocka_unit_test(test_is_module_loaded_err_2),
-		cmocka_unit_test(test_is_module_loaded_err_3),
+		cmocka_unit_test(test_is_module_loaded_err_new),
+		cmocka_unit_test(test_is_module_loaded_bad_name),
+		cmocka_unit_test(test_is_module_loaded_err_lookup),
 		cmocka_unit_test(test_is_module_loaded_empty),
-		cmocka_unit_test(test_is_module_loaded_err_4),
-		cmocka_unit_test(test_is_module_loaded_good_1),
-		cmocka_unit_test(test_load_module_err_1),
-		cmocka_unit_test(test_load_module_err_2),
-		cmocka_unit_test(test_load_module_err_3),
+		cmocka_unit_test(test_is_module_loaded_err_mismatch),
+		cmocka_unit_test(test_is_module_loaded_live),
+		cmocka_unit_test(test_is_module_loaded_going),
+		cmocka_unit_test(test_is_module_loaded_coming),
+		cmocka_unit_test(test_is_module_loaded_bad_state),
+		cmocka_unit_test(test_is_module_loaded_err_state),
+		cmocka_unit_test(test_is_module_loaded_enoent_state),
+		cmocka_unit_test(test_is_module_loaded_builtin),
+		cmocka_unit_test(test_load_module_err_new),
+		cmocka_unit_test(test_load_module_err_bad_name),
+		cmocka_unit_test(test_load_module_err_lookup),
 		cmocka_unit_test(test_load_module_empty),
-		cmocka_unit_test(test_load_module_err_4),
-		cmocka_unit_test(test_unload_module_err_1),
+		cmocka_unit_test(test_load_module_err_mismatch),
+		cmocka_unit_test(test_unload_module_err_new),
 	};
 
 	return cmocka_run_group_tests(mock_modload_tests, NULL, NULL);
