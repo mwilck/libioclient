@@ -176,8 +176,6 @@ int load_module(const char *name)
 		rc = kmod_module_probe_insert_module(mod,
 						     KMOD_PROBE_IGNORE_COMMAND,
 						     NULL, NULL, NULL, NULL);
-		if (rc == -EEXIST)
-			rc = 0;
 		if (rc < 0) {
 			log(LOG_ERR, "kmod_module_insert_module %s: %s\n",
 			    kmod_module_get_name(mod),
