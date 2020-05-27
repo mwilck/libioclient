@@ -866,6 +866,102 @@ static void test_load_module_err_mismatch(void **state __attribute__((unused)))
 	assert_int_equal(call_load_module(&mock), -1);
 }
 
+static const struct mock_load_module_loop mock_lm_wrong = {
+	.get_module_rv = WRAP_DUMMY_PTR,
+	.get_name_rv = "%WRONG%",
+};
+
+static const struct mock_load_module_loop mock_lm_good = {
+	.get_module_rv = WRAP_DUMMY_PTR,
+	.get_name_rv = mod_name,
+};
+
+/* Simple good case */
+static void test_load_module_good_1(void **state __attribute__((unused)))
+{
+	struct mock_load_module_loop loop_rv = mock_lm_good;
+	struct mock_load_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = 1,
+		.loop_rvs = &loop_rv,
+		.probe_rv = 0,
+	};
+
+	assert_int_equal(call_load_module(&mock), 0);
+}
+
+/* Two lookup results, 1st good */
+static void test_load_module_good_2(void **state __attribute__((unused)))
+{
+	enum { N_LOOP = 2 };
+	struct mock_load_module_loop loop_rvs[N_LOOP] = {
+		mock_lm_good, mock_lm_wrong,
+	};
+	struct mock_load_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+		.probe_rv = 0,
+	};
+
+	assert_int_equal(call_load_module(&mock), 0);
+}
+
+/* Two lookup results, 2nd good */
+static void test_load_module_good_3(void **state __attribute__((unused)))
+{
+	enum { N_LOOP = 2 };
+	struct mock_load_module_loop loop_rvs[N_LOOP] = {
+		mock_lm_wrong, mock_lm_good,
+	};
+	struct mock_load_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+		.probe_rv = 0,
+	};
+
+	assert_int_equal(call_load_module(&mock), 0);
+}
+
+/* Error from kmod_module_probe_insert_module() */
+static void test_load_module_probe_err(void **state __attribute__((unused)))
+{
+	struct mock_load_module_loop loop_rv = mock_lm_good;
+	struct mock_load_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = 1,
+		.loop_rvs = &loop_rv,
+		.probe_rv = -ENODEV,
+	};
+
+	assert_int_equal(call_load_module(&mock), -1);
+}
+
+/* Positive retcode (blacklist!?) from kmod_module_probe_insert_module() */
+static void test_load_module_probe_blk(void **state __attribute__((unused)))
+{
+	struct mock_load_module_loop loop_rv = mock_lm_good;
+	struct mock_load_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = 1,
+		.loop_rvs = &loop_rv,
+		.probe_rv = KMOD_PROBE_APPLY_BLACKLIST,
+	};
+
+	assert_int_equal(call_load_module(&mock), -1);
+}
+
 static const struct mock_load_module_loop real_mock_load_module_loop = {
 	.get_module_rv = WRAP_USE_REAL_PTR,
 	.get_name_rv = WRAP_USE_REAL_PTR,
@@ -964,6 +1060,11 @@ static int run_mock_modload_tests(void)
 		cmocka_unit_test(test_load_module_err_lookup),
 		cmocka_unit_test(test_load_module_empty),
 		cmocka_unit_test(test_load_module_err_mismatch),
+		cmocka_unit_test(test_load_module_good_1),
+		cmocka_unit_test(test_load_module_good_2),
+		cmocka_unit_test(test_load_module_good_3),
+		cmocka_unit_test(test_load_module_probe_err),
+		cmocka_unit_test(test_load_module_probe_blk),
 		cmocka_unit_test(test_unload_module_err_new),
 	};
 
