@@ -512,19 +512,22 @@ static void test_is_module_loaded_err_4(void **state __attribute__((unused)))
 	assert_int_equal(call_is_module_loaded(&mock), 0);
 }
 
+static const struct mock_is_module_loaded_loop mock_imll_wrong = {
+	.get_module_rv = WRAP_DUMMY_PTR,
+	.get_name_rv = "%WRONG%"
+};
+
+static const struct mock_is_module_loaded_loop mock_imll_good = {
+	.get_module_rv = WRAP_DUMMY_PTR,
+	.get_name_rv = mod_name,
+};
+
 /* list of 2 entries, first wrong, 2nd good */
 static void test_is_module_loaded_good_1(void **state __attribute__((unused)))
 {
 	enum { N_LOOP = 2 };
 	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
-		{
-			.get_module_rv = WRAP_DUMMY_PTR,
-			.get_name_rv = "%WRONG%"
-		},
-		{
-			.get_module_rv = WRAP_DUMMY_PTR,
-			.get_name_rv = mod_name,
-		},
+		mock_imll_wrong, mock_imll_good
 	};
 	struct mock_is_module_loaded mock = {
 		.modname = mod_name,
@@ -533,10 +536,13 @@ static void test_is_module_loaded_good_1(void **state __attribute__((unused)))
 		.n_lookup_list = N_LOOP,
 		.loop_rvs = loop_rvs,
 	};
+
+	loop_rvs[1].initstate = KMOD_MODULE_LIVE;
 	assert_int_equal(call_is_module_loaded(&mock), 0);
 }
 
-static struct mock_is_module_loaded_loop real_mock_is_module_loaded_loop = {
+static const struct mock_is_module_loaded_loop
+real_mock_is_module_loaded_loop = {
 	.get_module_rv = WRAP_USE_REAL_PTR,
 	.get_name_rv = WRAP_USE_REAL_PTR,
 	.initstate = WRAP_USE_REAL,
