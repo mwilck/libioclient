@@ -1043,10 +1043,44 @@ static void call_kmod_module_new_from_name(int rv)
 	will_return(__wrap_kmod_module_new_from_name, rv);
 }
 
+/*
+ * unload_module() may need to retry kmod_module_remove_module().
+ * In the mock driver, we have no idea how often. So we must stop
+ * mocking after the first attempt.
+ */
+static unsigned int nowrap_kmod_module_remove_module;
+
+int
+__real_kmod_module_remove_module(struct kmod_module *mod, unsigned int flags);
+
+int
+__wrap_kmod_module_remove_module(struct kmod_module *mod, unsigned int flags)
+{
+	int rv;
+
+	if (nowrap_kmod_module_remove_module++)
+		return __real_kmod_module_remove_module(mod, flags);
+	check_expected_ptr(mod);
+	check_expected(flags);
+	rv = mock_type(int);
+	if (rv != WRAP_USE_REAL)
+		return rv;
+	else
+		return __real_kmod_module_remove_module(mod, flags);
+}
+
+static void call_kmod_module_remove_module(int rv)
+{
+	expect_not_value(__wrap_kmod_module_remove_module, mod, NULL);
+	expect_value(__wrap_kmod_module_remove_module, flags, 0);
+	will_return(__wrap_kmod_module_remove_module, rv);
+}
+
 struct mock_unload_module {
 	const char *modname;
 	struct kmod_ctx *kmod_new_rv;
 	int new_mod_rv;
+	int remove_rv;
 };
 
 static int call_unload_module(struct mock_unload_module *mock)
@@ -1054,12 +1088,17 @@ static int call_unload_module(struct mock_unload_module *mock)
 	call_kmod_new(mock->kmod_new_rv);
 	if (mock->kmod_new_rv) {
 		call_kmod_module_new_from_name(mock->new_mod_rv);
-		if (mock->new_mod_rv == 0)
+		if (mock->new_mod_rv == 0) {
+			call_kmod_module_remove_module(mock->remove_rv);
 			call_kmod_module_unref(WRAP_DUMMY_PTR);
-		else if (mock->new_mod_rv == WRAP_USE_REAL)
+		} else if (mock->new_mod_rv == WRAP_USE_REAL) {
+			call_kmod_module_remove_module(mock->remove_rv);
 			call_kmod_module_unref(WRAP_USE_REAL_PTR);
+		}
 		call_kmod_unref(mock->kmod_new_rv);
 	}
+	/* Reset the nowrap flag before calling unlad_module() */
+	nowrap_kmod_module_remove_module = 0;
 	return unload_module(mock->modname);
 }
 
@@ -1078,6 +1117,7 @@ static int real_unload_module(const char *modname)
 		.modname = modname,
 		.kmod_new_rv = WRAP_USE_REAL_PTR,
 		.new_mod_rv = WRAP_USE_REAL,
+		.remove_rv = WRAP_USE_REAL,
 	};
 
 	return call_unload_module(&mock);
