@@ -692,6 +692,61 @@ static void test_is_module_loaded_real(void **state)
 	assert_int_equal(call_is_module_loaded(&mock), expected);
 }
 
+
+int
+__real_kmod_module_probe_insert_module(struct kmod_module *mod,
+				       unsigned int flags,
+				       const char *extra_options,
+				       int (*run_install)(struct kmod_module *m,
+							  const char *cmd, void *data),
+				       const void *data,
+				       void (*print_action)(struct kmod_module *m,
+							    bool install,
+							    const char *options));
+
+int
+__wrap_kmod_module_probe_insert_module(struct kmod_module *mod,
+				       unsigned int flags,
+				       const char *extra_options,
+				       int (*run_install)(struct kmod_module *m,
+							  const char *cmd, void *data),
+				       const void *data,
+				       void (*print_action)(struct kmod_module *m,
+							    bool install,
+							    const char *options))
+{
+	int rv;
+
+	check_expected_ptr(mod);
+	check_expected(flags);
+	check_expected_ptr(extra_options);
+	check_expected_ptr(run_install);
+	check_expected_ptr(data);
+	check_expected_ptr(print_action);
+	rv = mock_type(int);
+	if (rv != WRAP_USE_REAL)
+		return rv;
+	else
+		return __real_kmod_module_probe_insert_module(mod, flags,
+							      extra_options,
+							      run_install, data,
+							      print_action);
+}
+
+static void call_kmod_module_probe_insert_module(int rv)
+{
+	expect_not_value(__wrap_kmod_module_probe_insert_module, mod, NULL);
+	expect_value(__wrap_kmod_module_probe_insert_module,
+		     flags, KMOD_PROBE_IGNORE_COMMAND);
+	expect_value(__wrap_kmod_module_probe_insert_module,
+		     extra_options, NULL);
+	expect_value(__wrap_kmod_module_probe_insert_module, run_install, NULL);
+	expect_value(__wrap_kmod_module_probe_insert_module, data, NULL);
+	expect_value(__wrap_kmod_module_probe_insert_module,
+		     print_action, NULL);
+	will_return(__wrap_kmod_module_probe_insert_module, rv);
+}
+
 struct mock_load_module_loop {
 	struct kmod_module *get_module_rv;
 	const char *get_name_rv;
@@ -703,6 +758,7 @@ struct mock_load_module {
 	int lookup_rv;
 	int n_lookup_list;
 	struct mock_load_module_loop *loop_rvs;
+	int probe_rv;
 };
 
 static int call_load_module(struct mock_load_module *mock)
@@ -729,8 +785,10 @@ static int call_load_module(struct mock_load_module *mock)
 			call_kmod_module_get_name(name);
 			call_kmod_module_unref(mod);
 			if (name == WRAP_USE_REAL_PTR ||
-			    !strcmp(name, mock->modname))
+			    !strcmp(name, mock->modname)) {
+				call_kmod_module_probe_insert_module(mock->probe_rv);
 				break;
+			}
 			i++;
 		}
 		call_kmod_module_unref_list(mock->lookup_rv,
@@ -825,6 +883,7 @@ static void test_load_module_real(void **state __attribute__((unused)))
 		.lookup_rv = WRAP_USE_REAL,
 		.n_lookup_list = N_LOOP,
 		.loop_rvs = loop_rvs,
+		.probe_rv = WRAP_USE_REAL,
 	};
 
 	assert_int_equal(call_load_module(&mock), 0);
