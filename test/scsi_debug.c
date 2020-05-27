@@ -19,6 +19,15 @@ static int __DUMMY;
 #define WRAP_SKIP_PTR ((void *) WRAP_SKIP)
 #define WRAP_DUMMY_PTR ((void *) &__DUMMY)
 
+#define expect_string_or_null(func, arg, ptr)			\
+	do {							\
+		const char *__p = (ptr);			\
+		if (__p == NULL)				\
+			expect_value(func, arg, NULL);		\
+		else						\
+			expect_string(func, arg, __p);		\
+	} while (0);
+
 struct sdbg_test_state {
 	bool module_loaded;
 };
@@ -229,11 +238,7 @@ static void call_kmod_module_new_from_lookup(const char *modname, int lookup_rv,
 					     void *lookup_list)
 {
 	expect_not_value(__wrap_kmod_module_new_from_lookup, ctx, NULL);
-	if (modname == NULL)
-		expect_value(__wrap_kmod_module_new_from_lookup,
-			     given_alias, NULL);
-	else
-		expect_string(__wrap_kmod_module_new_from_lookup,
+	expect_string_or_null(__wrap_kmod_module_new_from_lookup,
 			      given_alias, modname);
 	expect_not_value(__wrap_kmod_module_new_from_lookup, list,
 			 NULL);
