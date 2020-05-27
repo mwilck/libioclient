@@ -176,13 +176,20 @@ int load_module(const char *name)
 		rc = kmod_module_probe_insert_module(mod,
 						     KMOD_PROBE_IGNORE_COMMAND,
 						     NULL, NULL, NULL, NULL);
-		if (rc < 0) {
+		if (rc == 0)
+			return 0;
+		else if (rc < 0) {
 			log(LOG_ERR, "kmod_module_insert_module(%s): %s\n",
 			    real_name, strerror(-rc));
 			errno = -rc;
 			return -1;
-		} else
-			return 0;
+		} else {
+			log(LOG_ERR,
+			    "kmod_module_insert_module(%s): unexpected retcode %d\n",
+			    real_name, rc);
+			errno = -EINVAL;
+			return -1;
+		}
 	}
 	if (rc == -1) {
 		log(LOG_ERR, "module \"%s\" not found\n", name);
