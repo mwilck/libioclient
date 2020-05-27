@@ -156,6 +156,7 @@ int load_module(const char *name)
 	if (rc == -1)
 		return rc;
 
+	rc = -1;
 	kmod_list_foreach(iter, lst) {
 		struct kmod_module *mod
 			__cleanup__(cleanup_kmod_module) = NULL;
@@ -176,12 +177,16 @@ int load_module(const char *name)
 						     KMOD_PROBE_IGNORE_COMMAND,
 						     NULL, NULL, NULL, NULL);
 		if (rc < 0) {
-			log(LOG_ERR, "kmod_module_insert_module %s: %s\n",
+			log(LOG_ERR, "kmod_module_insert_module(%s): %s\n",
 			    real_name, strerror(-rc));
 			errno = -rc;
-			rc = -1;
-			break;
-		}
+			return -1;
+		} else
+			return 0;
+	}
+	if (rc == -1) {
+		log(LOG_ERR, "module \"%s\" not found\n", name);
+		errno = ENOENT;
 	}
 	return rc;
 }
