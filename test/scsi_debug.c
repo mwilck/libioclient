@@ -335,14 +335,14 @@ struct mock_is_module_loaded {
 static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 {
 	int rv;
+	/*
+	 * Using (void *) here to avoid having to define a type-specific
+	 * cleanup function
+	 */
+	void *_ptr __cleanup__(cleanup_free_voidp) = NULL;
 
 	call_kmod_new(mock->kmod_new_rv);
 	if (mock->kmod_new_rv != NULL) {
-		/*
-		 * Using (void *) here to avoid having to define a type-specific
-		 * cleanup function
-		 */
-		void *_ptr __cleanup__(cleanup_free_voidp) = NULL;
 		struct kmod_list *lst, *iter;
 		int i = 0;
 
@@ -447,10 +447,10 @@ struct mock_load_module {
 
 static int call_load_module(struct mock_load_module *mock)
 {
+	void *_ptr __cleanup__(cleanup_free_voidp) = NULL;
+
 	call_kmod_new(mock->kmod_new_rv);
 	if (mock->kmod_new_rv != NULL) {
-		/* See call_is_module_loaded */
-		void *_ptr __cleanup__(cleanup_free_voidp) = NULL;
 		struct kmod_list *lst, *iter;
 		int i = 0;
 
