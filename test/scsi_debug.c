@@ -12,10 +12,12 @@
 #include "scsi-debug.h"
 #include <kmod/libkmod.h>
 
+static int __DUMMY;
 #define WRAP_USE_REAL ((int) 0xaffedead)
 #define WRAP_USE_REAL_PTR ((void *) WRAP_USE_REAL)
 #define WRAP_SKIP ((int) 0xdeadaffe)
 #define WRAP_SKIP_PTR ((void *) WRAP_SKIP)
+#define WRAP_DUMMY_PTR ((void *) &__DUMMY)
 
 struct sdbg_test_state {
 	bool module_loaded;
@@ -456,6 +458,26 @@ static void test_is_module_loaded_empty(void **state __attribute__((unused)))
 	assert_int_equal(call_is_module_loaded(&mock), -1);
 }
 
+/* module found, but different name */
+static void test_is_module_loaded_err_4(void **state __attribute__((unused)))
+{
+	enum { N_LOOP = 1 };
+	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
+		{
+			.get_module_rv = WRAP_DUMMY_PTR,
+			.get_name_rv = "%WRONG%"
+		},
+	};
+	struct mock_is_module_loaded mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+	};
+	assert_int_equal(call_is_module_loaded(&mock), 0);
+}
+
 static struct mock_is_module_loaded_loop real_mock_is_module_loaded_loop = {
 	.get_module_rv = WRAP_USE_REAL_PTR,
 	.get_name_rv = WRAP_USE_REAL_PTR,
@@ -657,6 +679,7 @@ static int run_mock_modload_tests(void)
 		cmocka_unit_test(test_is_module_loaded_err_2),
 		cmocka_unit_test(test_is_module_loaded_err_3),
 		cmocka_unit_test(test_is_module_loaded_empty),
+		cmocka_unit_test(test_is_module_loaded_err_4),
 		cmocka_unit_test(test_load_module_err_1),
 		cmocka_unit_test(test_load_module_err_2),
 		cmocka_unit_test(test_load_module_err_3),
