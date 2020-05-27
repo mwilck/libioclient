@@ -286,6 +286,50 @@ static void call_kmod_module_get_name(const char *name)
 	will_return(__wrap_kmod_module_get_name, name);
 }
 
+struct kmod_module *
+__real_kmod_module_unref(struct kmod_module *mod);
+
+struct kmod_module *
+__wrap_kmod_module_unref(struct kmod_module *mod)
+{
+	struct kmod_module *rv;
+
+	check_expected_ptr(mod);
+	rv = mock_ptr_type(struct kmod_module *);
+	if (rv != WRAP_USE_REAL_PTR)
+		return rv;
+	return __real_kmod_module_unref(mod);
+}
+
+static void call_kmod_module_unref(struct kmod_module *rv)
+{
+	expect_not_value(__wrap_kmod_module_unref, mod, NULL);
+	will_return(__wrap_kmod_module_unref, rv);
+}
+
+int
+__real_kmod_module_unref_list(struct kmod_list *list);
+
+int
+__wrap_kmod_module_unref_list(struct kmod_list *list)
+{
+	int rv;
+
+	check_expected_ptr(list);
+	rv = mock_type(int);
+	if (rv != WRAP_USE_REAL)
+		return rv;
+	return __real_kmod_module_unref_list(list);
+}
+
+static void call_kmod_module_unref_list(int rv, int n_elem)
+{
+	if (n_elem > 0) {
+		expect_not_value(__wrap_kmod_module_unref_list, list, NULL);
+		will_return(__wrap_kmod_module_unref_list, rv);
+	}
+}
+
 /*
  * Copied verbatim from kmod-27.
  * This will fail if the kmod internal structures change.
@@ -360,7 +404,10 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 				break;
 			name = mock->loop_rvs[i].get_name_rv;
 			call_kmod_module_get_name(name);
+			call_kmod_module_unref(mod);
 		}
+		call_kmod_module_unref_list(mock->lookup_rv,
+					    mock->n_lookup_list);
 	}
 
 	rv = is_module_loaded(mock->modname);
@@ -467,7 +514,10 @@ static int call_load_module(struct mock_load_module *mock)
 				break;
 			name = mock->loop_rvs[i].get_name_rv;
 			call_kmod_module_get_name(name);
+			call_kmod_module_unref(mod);
 		}
+		call_kmod_module_unref_list(mock->lookup_rv,
+					    mock->n_lookup_list);
 	}
 
 	return load_module(mock->modname);
