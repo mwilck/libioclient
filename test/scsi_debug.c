@@ -265,6 +265,27 @@ static void call_kmod_module_get_module(struct kmod_module *get_module_rv)
 	will_return(__wrap_kmod_module_get_module, get_module_rv);
 }
 
+const char *
+__real_kmod_module_get_name(const struct kmod_module *mod);
+
+const char *
+__wrap_kmod_module_get_name(const struct kmod_module *mod) {
+
+	const char *rv;
+
+	check_expected_ptr(mod);
+	rv = mock_ptr_type(const char *);
+	if (rv != WRAP_USE_REAL_PTR)
+		return rv;
+	return __real_kmod_module_get_name(mod);
+};
+
+static void call_kmod_module_get_name(const char *name)
+{
+	expect_not_value(__wrap_kmod_module_get_name, mod, NULL);
+	will_return(__wrap_kmod_module_get_name, name);
+}
+
 /*
  * Copied verbatim from kmod-27.
  * This will fail if the kmod internal structures change.
@@ -297,6 +318,7 @@ static struct kmod_list *mock_kmod_list(int n_elem)
 
 struct mock_is_module_loaded_loop {
 	struct kmod_module *get_module_rv;
+	const char *get_name_rv;
 };
 
 struct mock_is_module_loaded {
@@ -327,10 +349,14 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 						 mock->lookup_rv, lst);
 		kmod_list_foreach(iter, lst) {
 			struct kmod_module *mod;
+			const char *name;
+
 			mod = mock->loop_rvs[i].get_module_rv;
 			call_kmod_module_get_module(mod);
 			if (mod == NULL)
 				break;
+			name = mock->loop_rvs[i].get_name_rv;
+			call_kmod_module_get_name(name);
 		}
 	}
 
@@ -385,7 +411,10 @@ static void test_is_module_loaded_real(void **state)
 	/* pass n_lookup_list = 1: assume only one module in list */
 	enum { N_LOOP = 1 };
 	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
-		{ .get_module_rv = WRAP_USE_REAL_PTR, },
+		{
+			.get_module_rv = WRAP_USE_REAL_PTR,
+			.get_name_rv = WRAP_USE_REAL_PTR,
+		},
 	};
 	struct mock_is_module_loaded mock = {
 		.modname = mod_name,
@@ -402,6 +431,7 @@ static void test_is_module_loaded_real(void **state)
 
 struct mock_load_module_loop {
 	struct kmod_module *get_module_rv;
+	const char *get_name_rv;
 };
 
 struct mock_load_module {
@@ -426,11 +456,14 @@ static int call_load_module(struct mock_load_module *mock)
 						 mock->lookup_rv, lst);
 		kmod_list_foreach(iter, lst) {
 			struct kmod_module *mod;
+			const char *name;
 
 			mod = mock->loop_rvs[i].get_module_rv;
 			call_kmod_module_get_module(mod);
 			if (mod == NULL)
 				break;
+			name = mock->loop_rvs[i].get_name_rv;
+			call_kmod_module_get_name(name);
 		}
 	}
 
@@ -489,7 +522,10 @@ static void test_load_module_real(void **state __attribute__((unused)))
 {
 	enum { N_LOOP = 1 };
 	struct mock_load_module_loop loop_rvs[N_LOOP] = {
-		{ .get_module_rv = WRAP_USE_REAL_PTR, }
+		{
+			.get_module_rv = WRAP_USE_REAL_PTR,
+			.get_name_rv = WRAP_USE_REAL_PTR,
+		}
 	};
 	struct mock_load_module mock = {
 		.modname = mod_name,
