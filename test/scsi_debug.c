@@ -456,15 +456,17 @@ static void test_is_module_loaded_empty(void **state __attribute__((unused)))
 	assert_int_equal(call_is_module_loaded(&mock), -1);
 }
 
+static struct mock_is_module_loaded_loop real_mock_is_module_loaded_loop = {
+	.get_module_rv = WRAP_USE_REAL_PTR,
+	.get_name_rv = WRAP_USE_REAL_PTR,
+};
+
 static void test_is_module_loaded_real(void **state)
 {
 	/* pass n_lookup_list = 1: assume only one module in list */
 	enum { N_LOOP = 1 };
 	struct mock_is_module_loaded_loop loop_rvs[N_LOOP] = {
-		{
-			.get_module_rv = WRAP_USE_REAL_PTR,
-			.get_name_rv = WRAP_USE_REAL_PTR,
-		},
+		real_mock_is_module_loaded_loop,
 	};
 	struct mock_is_module_loaded mock = {
 		.modname = mod_name,
@@ -571,14 +573,16 @@ static void test_load_module_empty(void **state __attribute__((unused)))
 	assert_int_equal(call_load_module(&mock), -1);
 }
 
+static struct mock_load_module_loop real_mock_load_module_loop = {
+	.get_module_rv = WRAP_USE_REAL_PTR,
+	.get_name_rv = WRAP_USE_REAL_PTR,
+};
+
 static void test_load_module_real(void **state __attribute__((unused)))
 {
 	enum { N_LOOP = 1 };
 	struct mock_load_module_loop loop_rvs[N_LOOP] = {
-		{
-			.get_module_rv = WRAP_USE_REAL_PTR,
-			.get_name_rv = WRAP_USE_REAL_PTR,
-		}
+		real_mock_load_module_loop,
 	};
 	struct mock_load_module mock = {
 		.modname = mod_name,
