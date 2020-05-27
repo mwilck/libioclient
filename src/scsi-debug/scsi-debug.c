@@ -2,6 +2,7 @@
 #include <sys/utsname.h>
 #include <ioc-util.h>
 
+#include <limits.h>
 #include <errno.h>
 #include <string.h>
 #include <kmod/libkmod.h>
@@ -59,6 +60,18 @@ static int lookup_module(struct kmod_ctx *ctx, const char *name,
 	return rc;
 }
 
+static bool real_name_matches(const struct kmod_module *mod, const char *name)
+{
+	const char *real_name = kmod_module_get_name(mod);
+
+	if (strncmp(name, real_name, PATH_MAX)) {
+		log(LOG_DEBUG, "name mismatch: \"%s\" != \"%s\"\n",
+		    name, real_name);
+		return false;
+	} else
+		return true;
+}
+
 int is_module_loaded(const char *name)
 {
 	struct kmod_ctx *ctx __cleanup__(cleanup_kmod_ctx) = NULL;
@@ -74,6 +87,7 @@ int is_module_loaded(const char *name)
 	if (rc == -1)
 		return rc;
 
+	rc = 0;
 	kmod_list_foreach(iter, lst) {
 		struct kmod_module *mod
 			__cleanup__(cleanup_kmod_module) = NULL;
@@ -91,17 +105,18 @@ int is_module_loaded(const char *name)
 			log(LOG_ERR, "invalid module in kmod list\n");
 			break;
 		}
-
+		/* kmod_module_new_from_lookup() may have matched by alias */
+		if (!real_name_matches(mod, name))
+			continue;
 		state = kmod_module_get_initstate(mod);
 		switch(state) {
 		case KMOD_MODULE_BUILTIN:
 		case KMOD_MODULE_LIVE:
 		case KMOD_MODULE_COMING:
 			rc = 1;
-			continue;
+			return rc;
 		case -ENOENT:
 		case KMOD_MODULE_GOING:
-			rc = 0;
 			break;
 		default:
 			if (state < 0) {
@@ -123,7 +138,7 @@ int is_module_loaded(const char *name)
 		log(LOG_DEBUG, "module \"%s\" initstate %d\n",
 		    kmod_module_get_name(mod),
 		    state);
-		if (rc != 1)
+		if (rc != 0)
 			break;
 	}
 	return rc;
@@ -155,6 +170,8 @@ int load_module(const char *name)
 			log(LOG_ERR, "invalid module in kmod list\n");
 			break;
 		}
+		if (!real_name_matches(mod, name))
+			continue;
 
 		rc = kmod_module_probe_insert_module(mod,
 						     KMOD_PROBE_IGNORE_COMMAND,
