@@ -288,6 +288,27 @@ static void call_kmod_module_get_name(const char *name)
 	will_return(__wrap_kmod_module_get_name, name);
 }
 
+int
+__real_kmod_module_get_initstate(const struct kmod_module *mod);
+
+int
+__wrap_kmod_module_get_initstate(const struct kmod_module *mod) {
+
+	int rv;
+
+	check_expected_ptr(mod);
+	rv = mock_type(int);
+	if (rv != WRAP_USE_REAL)
+		return rv;
+	return __real_kmod_module_get_initstate(mod);
+};
+
+static void call_kmod_module_get_initstate(int rv)
+{
+	expect_not_value(__wrap_kmod_module_get_initstate, mod, NULL);
+	will_return(__wrap_kmod_module_get_initstate, rv);
+}
+
 struct kmod_module *
 __real_kmod_module_unref(struct kmod_module *mod);
 
@@ -368,6 +389,7 @@ static struct kmod_list *mock_kmod_list(int n_elem)
 struct mock_is_module_loaded_loop {
 	struct kmod_module *get_module_rv;
 	const char *get_name_rv;
+	int initstate;
 };
 
 struct mock_is_module_loaded {
@@ -391,6 +413,7 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 	if (mock->kmod_new_rv != NULL) {
 		struct kmod_list *lst, *iter;
 		int i = 0;
+		bool found = false;
 
 		/* make sure lst is freed on return */
 		_ptr = lst = mock_kmod_list(mock->n_lookup_list);
@@ -406,8 +429,16 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 				break;
 			name = mock->loop_rvs[i].get_name_rv;
 			call_kmod_module_get_name(name);
+			/* Assume that in the real case, the names will match */
+			if (name == WRAP_USE_REAL_PTR ||
+			    !strcmp(name, mock->modname)) {
+				int state = mock->loop_rvs[i].initstate;
+
+				call_kmod_module_get_initstate(state);
+				found = true;
+			};
 			call_kmod_module_unref(mod);
-			if (!strcmp(name, mock->modname))
+			if (found)
 				break;
 			i++;
 		}
@@ -508,6 +539,7 @@ static void test_is_module_loaded_good_1(void **state __attribute__((unused)))
 static struct mock_is_module_loaded_loop real_mock_is_module_loaded_loop = {
 	.get_module_rv = WRAP_USE_REAL_PTR,
 	.get_name_rv = WRAP_USE_REAL_PTR,
+	.initstate = WRAP_USE_REAL,
 };
 
 static void test_is_module_loaded_real(void **state)
@@ -566,7 +598,8 @@ static int call_load_module(struct mock_load_module *mock)
 			name = mock->loop_rvs[i].get_name_rv;
 			call_kmod_module_get_name(name);
 			call_kmod_module_unref(mod);
-			if (!strcmp(name, mock->modname))
+			if (name == WRAP_USE_REAL_PTR ||
+			    !strcmp(name, mock->modname))
 				break;
 			i++;
 		}
