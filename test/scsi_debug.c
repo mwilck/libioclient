@@ -407,6 +407,9 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 			name = mock->loop_rvs[i].get_name_rv;
 			call_kmod_module_get_name(name);
 			call_kmod_module_unref(mod);
+			if (!strcmp(name, mock->modname))
+				break;
+			i++;
 		}
 		call_kmod_module_unref_list(mock->lookup_rv,
 					    mock->n_lookup_list);
@@ -539,6 +542,9 @@ static int call_load_module(struct mock_load_module *mock)
 			name = mock->loop_rvs[i].get_name_rv;
 			call_kmod_module_get_name(name);
 			call_kmod_module_unref(mod);
+			if (!strcmp(name, mock->modname))
+				break;
+			i++;
 		}
 		call_kmod_module_unref_list(mock->lookup_rv,
 					    mock->n_lookup_list);
