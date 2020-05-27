@@ -400,71 +400,106 @@ static void test_is_module_loaded_real(void **state)
 	assert_int_equal(call_is_module_loaded(&mock), expected);
 }
 
-static int call_load_module(const char *modname,
-			    struct kmod_ctx *kmod_new_rv,
-			    int lookup_rv, int n_lookup_list, ...)
+struct mock_load_module_loop {
+	struct kmod_module *get_module_rv;
+};
+
+struct mock_load_module {
+	const char *modname;
+	struct kmod_ctx *kmod_new_rv;
+	int lookup_rv;
+	int n_lookup_list;
+	struct mock_load_module_loop *loop_rvs;
+};
+
+static int call_load_module(struct mock_load_module *mock)
 {
-	call_kmod_new(kmod_new_rv);
-	if (kmod_new_rv != NULL) {
+	call_kmod_new(mock->kmod_new_rv);
+	if (mock->kmod_new_rv != NULL) {
 		/* See call_is_module_loaded */
 		void *_ptr __cleanup__(cleanup_free_voidp) = NULL;
 		struct kmod_list *lst, *iter;
-		va_list va;
+		int i = 0;
 
-		_ptr = lst = mock_kmod_list(n_lookup_list);
-		call_kmod_module_new_from_lookup(modname,
-						 lookup_rv, lst);
-		va_start(va, n_lookup_list);
+		_ptr = lst = mock_kmod_list(mock->n_lookup_list);
+		call_kmod_module_new_from_lookup(mock->modname,
+						 mock->lookup_rv, lst);
 		kmod_list_foreach(iter, lst) {
-			void *get_module_rv = va_arg(va, void*);
+			struct kmod_module *mod;
 
-			call_kmod_module_get_module(get_module_rv);
-			if (get_module_rv == NULL)
+			mod = mock->loop_rvs[i].get_module_rv;
+			call_kmod_module_get_module(mod);
+			if (mod == NULL)
 				break;
 		}
-		va_end(va);
 	}
 
-	return load_module(modname);
+	return load_module(mock->modname);
 }
 
 
 /* Error in kmod_new() */
 static void test_load_module_err_1(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(mod_name, NULL, 0, 0), -1);
+	struct mock_load_module mock = {
+		.modname = mod_name,
+	};
+
+	assert_int_equal(call_load_module(&mock), -1);
 }
 
 /* Error in kmod_module_new_from_lookup(): alias = NULL */
 static void test_load_module_err_2(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
-					  WRAP_USE_REAL, 0),
-			 -1);
+	struct mock_load_module mock = {
+		.modname = NULL,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = WRAP_USE_REAL,
+	};
+
+	assert_int_equal(call_load_module(&mock), -1);
 }
 
 /* Error in kmod_module_new_from_lookup(): other */
 static void test_load_module_err_3(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
-					  -ENOMEM, 0),
-			 -1);
+	struct mock_load_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = -ENOMEM,
+	};
+
+	assert_int_equal(call_load_module(&mock), -1);
 }
 
 /* module not found in kmod_module_new_from_lookup() */
 static void test_load_module_empty(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(NULL, WRAP_USE_REAL_PTR,
-					  0, 0),
-			 -1);
+	struct mock_load_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = 0,
+		.n_lookup_list = 0,
+	};
+
+	assert_int_equal(call_load_module(&mock), -1);
 }
 
 static void test_load_module_real(void **state __attribute__((unused)))
 {
-	assert_int_equal(call_load_module(mod_name, WRAP_USE_REAL_PTR,
-					  WRAP_USE_REAL,
-					  1, WRAP_USE_REAL_PTR),
-			 0);
+	enum { N_LOOP = 1 };
+	struct mock_load_module_loop loop_rvs[N_LOOP] = {
+		{ .get_module_rv = WRAP_USE_REAL_PTR, }
+	};
+	struct mock_load_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.lookup_rv = WRAP_USE_REAL,
+		.n_lookup_list = N_LOOP,
+		.loop_rvs = loop_rvs,
+	};
+
+	assert_int_equal(call_load_module(&mock), 0);
 	set_module_loaded(state, true);
 }
 
