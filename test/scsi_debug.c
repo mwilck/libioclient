@@ -1035,10 +1035,10 @@ __wrap_kmod_module_new_from_name(struct kmod_ctx *ctx,
 		return __real_kmod_module_new_from_name(ctx, name, mod);
 }
 
-static void call_kmod_module_new_from_name(int rv)
+static void call_kmod_module_new_from_name(const char *modname, int rv)
 {
 	expect_not_value(__wrap_kmod_module_new_from_name, ctx, NULL);
-	expect_not_value(__wrap_kmod_module_new_from_name, name, NULL);
+	expect_string_or_null(__wrap_kmod_module_new_from_name, name, modname);
 	expect_not_value(__wrap_kmod_module_new_from_name, mod, NULL);
 	will_return(__wrap_kmod_module_new_from_name, rv);
 }
@@ -1087,11 +1087,12 @@ static int call_unload_module(struct mock_unload_module *mock)
 {
 	call_kmod_new(mock->kmod_new_rv);
 	if (mock->kmod_new_rv) {
-		call_kmod_module_new_from_name(mock->new_mod_rv);
+		call_kmod_module_new_from_name(mock->modname, mock->new_mod_rv);
 		if (mock->new_mod_rv == 0) {
 			call_kmod_module_remove_module(mock->remove_rv);
 			call_kmod_module_unref(WRAP_DUMMY_PTR);
-		} else if (mock->new_mod_rv == WRAP_USE_REAL) {
+		} else if (mock->new_mod_rv == WRAP_USE_REAL &&
+			   mock->modname != NULL) {
 			call_kmod_module_remove_module(mock->remove_rv);
 			call_kmod_module_unref(WRAP_USE_REAL_PTR);
 		}
@@ -1109,6 +1110,33 @@ static void test_unload_module_err_new(void **state __attribute__((unused)))
 		.modname = mod_name,
 	};
 	assert_int_equal(call_unload_module(&mock), -1);
+}
+
+/* NULL pointer for module name */
+static void test_unload_module_name_null(void **state __attribute__((unused)))
+{
+	struct mock_unload_module mock = {
+		.modname = NULL,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.new_mod_rv =  WRAP_USE_REAL,
+	};
+
+	/* kmod_module_new_from_name returns -ENOENT, which we treat as success */
+	assert_int_equal(call_unload_module(&mock), 0);
+}
+
+/* Bad value for module name */
+static void test_unload_module_name_bad(void **state __attribute__((unused)))
+{
+	struct mock_unload_module mock = {
+		.modname = "%BAD%",
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.new_mod_rv =  WRAP_USE_REAL,
+		.remove_rv = WRAP_USE_REAL,
+	};
+
+	/* kmod_module_remove_module returns -ENOENT, which we treat as success */
+	assert_int_equal(call_unload_module(&mock), 0);
 }
 
 static int real_unload_module(const char *modname)
@@ -1167,6 +1195,8 @@ static int run_mock_modload_tests(void)
 		cmocka_unit_test(test_load_module_probe_err),
 		cmocka_unit_test(test_load_module_probe_blk),
 		cmocka_unit_test(test_unload_module_err_new),
+		cmocka_unit_test(test_unload_module_name_null),
+		cmocka_unit_test(test_unload_module_name_bad),
 	};
 
 	return cmocka_run_group_tests(mock_modload_tests, NULL, NULL);
