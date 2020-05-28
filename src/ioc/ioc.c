@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2020 Martin Wilck, SUSE Software Solutions Germany GmbH
+ * SPDX-license-identifier: LGPL-2.0-or-later
+ */
+
 #define _GNU_SOURCE 1
 #include <sys/types.h>
 #include <sys/eventfd.h>
@@ -19,10 +24,6 @@
 #include "ioc.h"
 #include "ioc-internal.h"
 #include "ioc-util.h"
-
-// Copyright (c) 2020 Martin Wilck, SUSE Software Solutions GmbH
-
-// SPDX-license-identifier: LGPL-2.0-or-later
 
 /* Number of initially allocated IO requests */
 #define N_REQUESTS 8

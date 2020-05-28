@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2020 Martin Wilck, SUSE Software Solutions Germany GmbH
- *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 

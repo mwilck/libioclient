@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2020 Martin Wilck, SUSE Software Solutions Germany GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 #define _GNU_SOURCE 1
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -15,10 +20,6 @@
 #include <ioc.h>
 #include <ioc-util.h>
 // #include <mcheck.h>
-
-// Copyright (c) 2020 Martin Wilck, SUSE Software Solutions GmbH
-
-// SPDX-license-identifier: GPL-2.0-or-later
 
 /* Number of concurrent IO threads */
 #define N_THREADS 32

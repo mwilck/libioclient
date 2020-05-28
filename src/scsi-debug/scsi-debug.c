@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2020 Martin Wilck, SUSE Software Solutions Germany GmbH
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
+
 #define _GNU_SOURCE 1
 #include <ioc-util.h>
 

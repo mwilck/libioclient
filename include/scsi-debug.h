@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2020 Martin Wilck, SUSE Software Solutions Germany GmbH
+ * SPDX-license-identifier: LGPL-2.0-or-later
+ */
+
 #ifndef _IOCTEST_SCSI_H
 #define _IOCTEST_SCSI_H
 #include <stdbool.h>

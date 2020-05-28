@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2020 Martin Wilck, SUSE Software Solutions GmbH
+ * SPDX-license-identifier: LGPL-2.0-or-later
+ */
+
 #ifndef _IOC_H
 #define _IOC_H
 #include <stdint.h>
