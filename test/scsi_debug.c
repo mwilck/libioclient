@@ -1290,6 +1290,16 @@ static void set_mod_name(void)
 	mock_lm_good.get_name_rv = mod_name;
 }
 
+static bool check_slow(void)
+{
+	const char *val = getenv("IOC_KMOD_TEST_SKIP_SLOW");
+
+	if (val && !strcmp(val, "1"))
+		return false;
+	else
+		return true;
+}
+
 int main(void)
 {
 	int rv = 0;
@@ -1301,7 +1311,8 @@ int main(void)
 	set_mod_name();
 
 	rv += run_mock_modload_tests();
-	rv += run_slow_modload_tests();
+	if (check_slow())
+		rv += run_slow_modload_tests();
 	rv += run_real_modload_tests();
 
 	/* This for the test of atexit functionality */
