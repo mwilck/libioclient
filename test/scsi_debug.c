@@ -1216,12 +1216,24 @@ static int run_mock_modload_tests(void)
 		cmocka_unit_test(test_unload_module_name_bad),
 		cmocka_unit_test(test_unload_module_unload_err),
 		cmocka_unit_test(test_unload_module_unload_bad),
+	};
+
+	return cmocka_run_group_tests(mock_modload_tests, NULL, NULL);
+}
+
+/*
+ * These tests are relatively slow as they will require retries
+ * and usleep() calls.
+ */
+static int run_slow_modload_tests(void)
+{
+	const struct CMUnitTest slow_modload_tests[] = {
 		cmocka_unit_test(test_unload_module_repeat_good_9),
 		cmocka_unit_test(test_unload_module_repeat_bad_9),
 		cmocka_unit_test(test_unload_module_repeat_bad_3),
 	};
 
-	return cmocka_run_group_tests(mock_modload_tests, NULL, NULL);
+	return cmocka_run_group_tests(slow_modload_tests, NULL, NULL);
 }
 
 static int real_modload_setup(void **state)
@@ -1279,6 +1291,7 @@ int main(void)
 	atexit(check_atexit);
 	ioc_init();
 	rv += run_mock_modload_tests();
+	rv += run_slow_modload_tests();
 	rv += run_real_modload_tests();
 	__exiting = true;
 	return rv;
