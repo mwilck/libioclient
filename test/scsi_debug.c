@@ -1091,7 +1091,7 @@ static void call_kmod_module_new_from_name(const char *modname, int rv)
  * In the mock driver, we have no idea how often. So we must stop
  * mocking after the first attempt.
  */
-static unsigned int nowrap_kmod_module_remove_module;
+static unsigned int do_wrap_kmod_module_remove_module;
 
 int
 __real_kmod_module_remove_module(struct kmod_module *mod, unsigned int flags);
@@ -1101,8 +1101,11 @@ __wrap_kmod_module_remove_module(struct kmod_module *mod, unsigned int flags)
 {
 	int rv;
 
-	if (nowrap_kmod_module_remove_module++)
+	if (do_wrap_kmod_module_remove_module > 0)
+		do_wrap_kmod_module_remove_module--;
+	else
 		return __real_kmod_module_remove_module(mod, flags);
+
 	check_expected_ptr(mod);
 	check_expected(flags);
 	rv = mock_type(int);
@@ -1124,6 +1127,8 @@ struct mock_unload_module {
 	struct kmod_ctx *kmod_new_rv;
 	int new_mod_rv;
 	int remove_rv;
+	/* for mocking retries after -EAGAIN */
+	int remove_repeat;
 };
 
 static int call_unload_module(struct mock_unload_module *mock)
@@ -1136,12 +1141,16 @@ static int call_unload_module(struct mock_unload_module *mock)
 			call_kmod_module_unref(WRAP_DUMMY_PTR);
 		} else if (mock->new_mod_rv == WRAP_USE_REAL &&
 			   mock->modname != NULL) {
+			int i;
+
+			for (i = 0; i < mock->remove_repeat; i++)
+				call_kmod_module_remove_module(-EAGAIN);
 			call_kmod_module_remove_module(mock->remove_rv);
 			call_kmod_module_unref(WRAP_USE_REAL_PTR);
 		}
 	}
-	/* Reset the nowrap flag before calling unlad_module() */
-	nowrap_kmod_module_remove_module = 0;
+	/* Reset the do_wrap flag before calling unlad_module() */
+	do_wrap_kmod_module_remove_module = 1 + mock->remove_repeat;
 	return unload_module(mock->modname);
 }
 
