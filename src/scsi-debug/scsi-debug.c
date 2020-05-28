@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include <kmod/libkmod.h>
 
 char *kernel_dir_name(void)
@@ -34,10 +35,39 @@ static void cleanup_kmod_list(struct kmod_list **lst)
 		kmod_module_unref_list(*lst);
 }
 
-static void cleanup_kmod_ctx(struct kmod_ctx **ctx)
+static struct kmod_ctx *__my_ctx;
+
+static void put_kmod_ctx(void)
 {
-	if (ctx && *ctx)
-		kmod_unref(*ctx);
+	if (__my_ctx)
+		kmod_unref(__my_ctx);
+	__my_ctx = NULL;
+}
+
+void sdbg_release(void)
+{
+	put_kmod_ctx();
+}
+
+static void install_atexit_handler(void)
+{
+#if __GLIBC_PREREQ(2, 3)
+	static bool atexit_called;
+
+	if (atexit_called)
+		return;
+	atexit_called = true;
+	atexit(sdbg_release);
+#endif
+}
+
+static struct kmod_ctx *get_kmod_ctx(void)
+{
+	if (__my_ctx == NULL) {
+		install_atexit_handler();
+		__my_ctx = kmod_new(NULL, NULL);
+	}
+	return __my_ctx;
 }
 
 static int lookup_module(struct kmod_ctx *ctx, const char *name,
@@ -85,12 +115,12 @@ static void log_error_or_unexpected(const char *func, const char *modname,
 
 int is_module_loaded(const char *name)
 {
-	struct kmod_ctx *ctx __cleanup__(cleanup_kmod_ctx) = NULL;
+	struct kmod_ctx *ctx;
 	struct kmod_list *lst __cleanup__(cleanup_kmod_list) = NULL;
 	struct kmod_list *iter;
 	int rc;
 
-	ctx = kmod_new(NULL, NULL);
+	ctx = get_kmod_ctx();
 	if (!ctx)
 		return -1;
 
@@ -145,12 +175,12 @@ int is_module_loaded(const char *name)
 
 int load_module(const char *name)
 {
-	struct kmod_ctx *ctx __cleanup__(cleanup_kmod_ctx) = NULL;
+	struct kmod_ctx *ctx;
 	struct kmod_list *lst __cleanup__(cleanup_kmod_list) = NULL;
 	struct kmod_list *iter;
 	int rc;
 
-	ctx = kmod_new(NULL, NULL);
+	ctx = get_kmod_ctx();
 	if (!ctx)
 		return -1;
 
@@ -195,7 +225,7 @@ int load_module(const char *name)
 
 int unload_module(const char *name)
 {
-	struct kmod_ctx *ctx __cleanup__(cleanup_kmod_ctx) = NULL;
+	struct kmod_ctx *ctx;
 	struct kmod_module *mod __cleanup__(cleanup_kmod_module) = NULL;
 	int rc;
 	uint64_t start;
@@ -203,7 +233,7 @@ int unload_module(const char *name)
 	static const uint64_t LIMIT = 1000000LU;
 	static const useconds_t SLEEP = LIMIT/10;
 
-	ctx = kmod_new(NULL, NULL);
+	ctx = get_kmod_ctx();
 	if (!ctx)
 		return -1;
 
