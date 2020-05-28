@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <syslog.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
 
@@ -51,5 +52,23 @@ static inline uint64_t now_us(void)
 }
 
 #define __cleanup__(f) __attribute__((cleanup(f)))
+
+static inline void cleanup_fclose(FILE **f)
+{
+	if (f && *f)
+		fclose(*f);
+}
+
+static inline void cleanup_free_charp(char **p)
+{
+	if (p)
+		free(*p);
+}
+
+static inline void cleanup_free_voidp(void **p)
+{
+	if (p)
+		free(*p);
+}
 
 #endif

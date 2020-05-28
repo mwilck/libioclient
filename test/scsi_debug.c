@@ -28,24 +28,6 @@ static void set_module_loaded(void **state, bool loaded)
 	((struct sdbg_test_state *) *state)->module_loaded = loaded;
 }
 
-static void cleanup_fclose(FILE **f)
-{
-	if (f && *f)
-		fclose(*f);
-}
-
-static void cleanup_free_charp(char **p)
-{
-	if (p)
-		free(*p);
-}
-
-static void cleanup_free_voidp(void **p)
-{
-	if (p)
-		free(*p);
-}
-
 static int check_proc_modules(const char *modname)
 {
 	static const char path[] = "/proc/modules";
