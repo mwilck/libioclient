@@ -1,6 +1,6 @@
 project('libioc', 'c',
 	version : '0.1.0',
-        license : 'LGPL-2.0+',
+        license : 'LGPL-2.1+',
 	default_options : ['buildtype=debugoptimized',
 			   'warning_level=2',
 			   'c_std=gnu99'])

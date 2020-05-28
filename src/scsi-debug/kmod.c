@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020 Martin Wilck, SUSE Software Solutions Germany GmbH
- * SPDX-License-Identifier: LGPL-2.0-or-later
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
 #define _GNU_SOURCE 1

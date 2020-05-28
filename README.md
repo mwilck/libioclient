@@ -26,8 +26,9 @@ See the API documentation in [scsi-debug.h](include/scsi-debug.h).
 # LICENSE
 
 The libraries are released under the GNU Library General Public License
-(LGPL), version 2 or newer. The unit test code is released under the GNU
-General Public License (GPL), verson 2 or newer.
+(LGPL), version 2.1 or newer (see [COPYING](COPYING)).
+The unit test code is released under the GNU General Public License (GPL),
+verson 2.0 or newer (see [COPYING.tests](COPYING.tests)).
 
 
 

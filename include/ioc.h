@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020 Martin Wilck, SUSE Software Solutions GmbH
- * SPDX-license-identifier: LGPL-2.0-or-later
+ * SPDX-license-identifier: LGPL-2.1-or-later
  */
 
 #ifndef _IOC_H
