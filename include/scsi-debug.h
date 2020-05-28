@@ -3,12 +3,6 @@
 #include <stdbool.h>
 
 /**
- * kernel_dir_name() - return name of kernel module directory
- * Return: character string allocated with malloc(), or NULL on failure
- */
-char *kernel_dir_name(void);
-
-/**
  * is_module_loaded() - check if a module is loaded
  * @name: name of module to query
  *

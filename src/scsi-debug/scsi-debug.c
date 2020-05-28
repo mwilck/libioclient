@@ -1,5 +1,4 @@
 #define _GNU_SOURCE 1
-#include <sys/utsname.h>
 #include <ioc-util.h>
 
 #include <limits.h>
@@ -7,21 +6,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <kmod/libkmod.h>
-
-char *kernel_dir_name(void)
-{
-	static char *buf;
-	struct utsname uts;
-
-	if (uname(&uts) == -1) {
-		log(LOG_ERR, "uname: %m\n");
-		return NULL;
-	}
-	if (asprintf(&buf, "/lib/modules/%s", uts.release) == -1)
-		return NULL;
-
-	return buf;
-}
 
 static void cleanup_kmod_module(struct kmod_module **mod)
 {
