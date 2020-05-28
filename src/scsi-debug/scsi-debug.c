@@ -126,25 +126,14 @@ int is_module_loaded(const char *name)
 		case KMOD_MODULE_BUILTIN:
 		case KMOD_MODULE_LIVE:
 		case KMOD_MODULE_COMING:
-			rc = 1;
-			return rc;
+			return 1;
 		case -ENOENT:
 		case KMOD_MODULE_GOING:
 			break;
 		default:
-			if (state < 0) {
-				log(LOG_ERR,
-				    "module \"%s\" initstate: %s\n",
-				    real_name, strerror(-state));
-				errno = -state;
-			} else {
-				log(LOG_ERR,
-				    "module \"%s\" initstate %d unsupported\n",
-				    real_name, state);
-				errno = EINVAL;
-			}
-			rc = -1;
-			break;
+			log_error_or_unexpected("kmod_module_get_initstate",
+						real_name, state);
+			return -1;
 		}
 		log(LOG_DEBUG, "module \"%s\" initstate %d\n",
 		    real_name, state);
@@ -191,16 +180,9 @@ int load_module(const char *name)
 						     NULL, NULL, NULL, NULL);
 		if (rc == 0)
 			return 0;
-		else if (rc < 0) {
-			log(LOG_ERR, "kmod_module_insert_module(%s): %s\n",
-			    real_name, strerror(-rc));
-			errno = -rc;
-			return -1;
-		} else {
-			log(LOG_ERR,
-			    "kmod_module_insert_module(%s): unexpected retcode %d\n",
-			    real_name, rc);
-			errno = -EINVAL;
+		else {
+			log_error_or_unexpected("kmod_module_insert_module",
+						real_name, rc);
 			return -1;
 		}
 	}
