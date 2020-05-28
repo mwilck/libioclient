@@ -6,25 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-
-#include "scsi-debug.h"
 #include <kmod/libkmod.h>
 
-static int __DUMMY;
-#define WRAP_USE_REAL ((int) 0xaffedead)
-#define WRAP_USE_REAL_PTR ((void *) WRAP_USE_REAL)
-#define WRAP_SKIP ((int) 0xdeadaffe)
-#define WRAP_SKIP_PTR ((void *) WRAP_SKIP)
-#define WRAP_DUMMY_PTR ((void *) &__DUMMY)
-
-#define expect_string_or_null(func, arg, ptr)			\
-	do {							\
-		const char *__p = (ptr);			\
-		if (__p == NULL)				\
-			expect_value(func, arg, NULL);		\
-		else						\
-			expect_string(func, arg, __p);		\
-	} while (0);
+#include "scsi-debug.h"
+#include "test-utils.h"
 
 struct sdbg_test_state {
 	bool module_loaded;
