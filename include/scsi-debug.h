@@ -2,6 +2,8 @@
 #define _IOCTEST_SCSI_H
 #include <stdbool.h>
 
+#define SDBG_MOD_NAME "scsi_debug"
+
 /**
  * is_module_loaded() - check if a module is loaded
  * @name: name of module to query
