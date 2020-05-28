@@ -3,9 +3,10 @@
 #include <ioc-util.h>
 #include <ioc.h>
 
-#include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/types.h>
 #include <kmod/libkmod.h>
 
 #include "scsi-debug.h"
@@ -15,6 +16,7 @@ struct sdbg_test_state {
 	bool module_loaded;
 };
 
+static bool i_am_root;
 static const char mod_name[] = "scsi_debug";
 //static const char mod_name[] = "tcm_qla2xxx";
 
@@ -918,6 +920,10 @@ static void test_load_module_real(void **state __attribute__((unused)))
 		.probe_rv = WRAP_USE_REAL,
 	};
 
+	if (!i_am_root) {
+		skip();
+		return;
+	}
 	assert_int_equal(call_load_module(&mock), 0);
 	set_module_loaded(state, true);
 }
@@ -1057,8 +1063,11 @@ static void test_unload_module_name_bad(void **state __attribute__((unused)))
 		.remove_rv = WRAP_USE_REAL,
 	};
 
-	/* kmod_module_remove_module returns -ENOENT, which we treat as success */
-	assert_int_equal(call_unload_module(&mock), 0);
+	/*
+	 * kmod_module_remove_module returns -ENOENT, which we treat as success
+	 * Without root, we'll get -EPERM.
+	 */
+	assert_int_equal(call_unload_module(&mock), i_am_root ? 0 : -1);
 }
 
 /* Error return from kmod_module_remove_module() */
@@ -1149,6 +1158,11 @@ static int real_unload_module(const char *modname)
 
 static void test_unload_module_real(void **state __attribute__((unused)))
 {
+	if (!i_am_root) {
+		skip();
+		return;
+	}
+
 	assert_int_equal(real_unload_module(mod_name), 0);
 	set_module_loaded(state, false);
 }
@@ -1205,26 +1219,30 @@ static int run_slow_modload_tests(void)
 
 static int real_modload_setup(void **state)
 {
-	struct sdbg_test_state *st;
+	void *ptr __cleanup__(cleanup_free_voidp) = NULL;
+
+	ptr = calloc(1, sizeof(struct sdbg_test_state));
+	if (!ptr)
+		return -1;
 
 	/* Make sure module is unloaded initially */
-	if (real_unload_module(mod_name) == -1)
+	if (i_am_root && real_unload_module(mod_name) == -1)
 		return -1;
-	st = calloc(1, sizeof(*st));
-	if (!st)
-		return -1;
-	*state = st;
+
+	*state = steal_ptr(ptr);
 	set_module_loaded(state, false);
 	return 0;
 }
 
 static int real_modload_teardown(void **state)
 {
+	int rv = 0;
+
 	/* Unload module after test */
+	if (i_am_root)
+		rv = real_unload_module(mod_name);
 	free(*state);
-	if (real_unload_module(mod_name) == -1)
-		return -1;
-	return 0;
+	return rv;
 }
 
 static int run_real_modload_tests(void)
@@ -1251,15 +1269,30 @@ static int run_real_modload_tests(void)
 				      real_modload_teardown);
 }
 
+static bool check_root(void)
+{
+	if (geteuid() != 0) {
+		log(LOG_WARNING,
+		    "running without privileges - skipping some tests\n");
+		return false;
+	} else
+		return true;
+}
+
 int main(void)
 {
 	int rv = 0;
 
 	atexit(check_atexit);
 	ioc_init();
+
+	i_am_root = check_root();
+
 	rv += run_mock_modload_tests();
 	rv += run_slow_modload_tests();
 	rv += run_real_modload_tests();
+
+	/* This for the test of atexit functionality */
 	__exiting = true;
 	return rv;
 }
