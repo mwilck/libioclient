@@ -70,6 +70,19 @@ static bool real_name_matches(const char *real_name, const char *name)
 		return true;
 }
 
+static void log_error_or_unexpected(const char *func, const char *modname,
+				    int rc)
+{
+	if (rc < 0) {
+		errno = -rc;
+		log(LOG_ERR, "%s (%s): %s\n", func, modname, strerror(errno));
+	} else {
+		errno = EINVAL;
+		log(LOG_ERR, "%s (%s): unexpected return value %d\n",
+		    func, modname, rc);
+	}
+}
+
 int is_module_loaded(const char *name)
 {
 	struct kmod_ctx *ctx __cleanup__(cleanup_kmod_ctx) = NULL;
