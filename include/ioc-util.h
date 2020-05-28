@@ -53,6 +53,12 @@ static inline uint64_t now_us(void)
 
 #define __cleanup__(f) __attribute__((cleanup(f)))
 
+#define steal_ptr(x) ({				\
+			void *__p = x;		\
+			x = NULL;		\
+			__p;			\
+		})
+
 static inline void cleanup_fclose(FILE **f)
 {
 	if (f && *f)
