@@ -198,8 +198,9 @@ int unload_module(const char *name)
 	struct kmod_ctx *ctx __cleanup__(cleanup_kmod_ctx) = NULL;
 	struct kmod_module *mod __cleanup__(cleanup_kmod_module) = NULL;
 	int rc;
-	uint64_t start_us;
-	static const uint64_t LIMIT = 1000000;
+	uint64_t start;
+	int64_t remain;
+	static const uint64_t LIMIT = 1000000LU;
 	static const useconds_t SLEEP = LIMIT/10;
 
 	ctx = kmod_new(NULL, NULL);
@@ -210,28 +211,26 @@ int unload_module(const char *name)
 	if (rc == -ENOENT)
 		return 0;
 	else if (rc < 0) {
-		log(LOG_ERR, "kmod_module_new_from_name: %s\n",
-		    strerror(-rc));
+		log(LOG_ERR, "kmod_module_new_from_name (%s): %s\n",
+		    name, strerror(-rc));
 		return -1;
 	}
 
-	start_us = now_us();
-	for (;;) {
+	for (start = now_us(), remain = LIMIT; remain > 0;
+	     remain = start + LIMIT - now_us()) {
 		rc = kmod_module_remove_module(mod, 0);
 		if (rc == -ENOENT || rc == 0)
 			return 0;
-		else if (rc == -EAGAIN) {
-			if (now_us() < start_us + LIMIT) {
-				usleep(SLEEP);
-				continue;
-			}
-		};
-		if (rc < 0) {
-			log(LOG_ERR, "remove \"%s\": %s",
-			    kmod_module_get_name(mod),
-			    strerror(-rc));
+		else if (rc == -EAGAIN)
+			usleep(remain <= SLEEP ? remain : SLEEP);
+		else {
+			log_error_or_unexpected("kmod_module_remove_module",
+						name, rc);
+			return -1;
 		}
-		return -1;
 	}
-	return 0;
+	log(LOG_ERR, "timeout removing %s after %"PRIu64"ms\n",
+	    name, (now_us() - start) / 1000);
+	errno = EBUSY;
+	return -1;
 }
