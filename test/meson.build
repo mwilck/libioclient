@@ -7,10 +7,10 @@ ioctest = executable('ioctest', 'ioctest.c',
 
 mocka_tests = {
 		'log': {},
-		'scsi_debug': {
-				'obj': [scsi_debug.extract_all_objects()],
-				'deps': kmod_dep
-			      },
+		'kmod': {
+			  'obj': [scsi_debug.extract_objects('kmod.c')],
+			  'deps': kmod_dep
+			},
 	      }
 
 foreach name, properties: mocka_tests

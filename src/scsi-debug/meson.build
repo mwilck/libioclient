@@ -1,6 +1,6 @@
 kmod_dep = dependency('libkmod')
 
-scsi_sources = ['scsi-debug.c']
+scsi_sources = ['kmod.c']
 scsi_debug = shared_library('scsi',
 			    scsi_sources,
 			    include_directories: inc,
