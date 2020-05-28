@@ -10,41 +10,46 @@
 #define SDBG_MOD_NAME "scsi_debug"
 
 /**
- * is_module_loaded() - check if a module is loaded
+ * sdbg_is_module_loaded() - check if a module is loaded
  * @name: name of module to query
  *
- * Return: 1 if scsi_debug is loaded, 0 otherwise, -1 on error
+ * Test the initstate of the kernel module with the given name.
+ * @name must be an actual module name, not an alias.
+ *
+ * Return: 1 if module is loaded, 0 otherwise, -1 on error, setting errno
  */
-int is_module_loaded(const char *name);
+int sdbg_is_module_loaded(const char *name);
 
 /**
- * load_module() - load a kernel module and its dependencies
+ * sdbg_load_module() - load a kernel module and its dependencies
  * @name: name of module to load
  *
- * This is like "modprobe", but without support for module options
- * and other advanced flags.
+ * This works like "modprobe". "install" statements and softdeps
+ * in modprobe.d are ignored for security reasons.
  *
- * Return: 0 if successful, -1 otherwise.
+ * Return: 0 if successful or if module is already loaded,
+ * -1 otherwise, setting errno.
  */
-int load_module(const char *name);
+int sdbg_load_module(const char *name);
 
 /**
- * load_module() - load a kernel module
+ * sdbg_unload_module() - unload a kernel module
  * @name: name of module to unload
  *
- * Return: 0 if successful, -1 otherwise.
+ * Return: 0 if successful or if module isn't loaded, -1 otherwise.
  */
-int unload_module(const char *name);
+int sdbg_unload_module(const char *name);
 
 /**
- * sdbg_release() - release resources
+ * sdbg_module_release() - release resources
  *
  * Call to release resources if no further calls to functions from this
  * header file are planned in the near future. If this is not called,
  * it will be called automatically at program exit using atexit(3).
- * It is ok to call other functions after sdbg_release(), but it will
- * cause a re-initialization of libkmod, and thus cost some resources.
+ * It is ok to call other module handling functions after sdbg_release(),
+ * but it will cause a re-initialization of libkmod, and thus cost some
+ * resources.
  */
-void sdbg_release(void);
+void sdbg_module_release(void);
 
 #endif /* _IOCTEST_SCSI_H */

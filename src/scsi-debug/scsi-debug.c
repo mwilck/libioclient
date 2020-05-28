@@ -33,7 +33,7 @@ static void put_kmod_ctx(void)
 	__my_ctx = NULL;
 }
 
-void sdbg_release(void)
+void sdbg_module_release(void)
 {
 	put_kmod_ctx();
 }
@@ -46,7 +46,7 @@ static void install_atexit_handler(void)
 	if (atexit_called)
 		return;
 	atexit_called = true;
-	atexit(sdbg_release);
+	atexit(sdbg_module_release);
 #endif
 }
 
@@ -102,7 +102,7 @@ static void log_error_or_unexpected(const char *func, const char *modname,
 	}
 }
 
-int is_module_loaded(const char *name)
+int sdbg_is_module_loaded(const char *name)
 {
 	struct kmod_ctx *ctx;
 	struct kmod_list *lst __cleanup__(cleanup_kmod_list) = NULL;
@@ -162,7 +162,7 @@ int is_module_loaded(const char *name)
 	return rc;
 }
 
-int load_module(const char *name)
+int sdbg_load_module(const char *name)
 {
 	struct kmod_ctx *ctx;
 	struct kmod_list *lst __cleanup__(cleanup_kmod_list) = NULL;
@@ -212,7 +212,7 @@ int load_module(const char *name)
 	return rc;
 }
 
-int unload_module(const char *name)
+int sdbg_unload_module(const char *name)
 {
 	struct kmod_ctx *ctx;
 	struct kmod_module *mod __cleanup__(cleanup_kmod_module) = NULL;

@@ -143,7 +143,7 @@ static void call_kmod_unref(void)
 static void call_sdbg_release(void)
 {
 	call_kmod_unref();
-	sdbg_release();
+	sdbg_module_release();
 }
 
 int
@@ -344,7 +344,6 @@ struct mock_is_module_loaded {
 
 static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 {
-	int rv;
 	/*
 	 * Using (void *) here to avoid having to define a type-specific
 	 * cleanup function
@@ -388,8 +387,7 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 					    mock->n_lookup_list);
 	}
 
-	rv = is_module_loaded(mock->modname);
-	return rv;
+	return sdbg_is_module_loaded(mock->modname);
 }
 
 /* Error in kmod_new() */
@@ -732,7 +730,7 @@ static int call_load_module(struct mock_load_module *mock)
 					    mock->n_lookup_list);
 	}
 
-	return load_module(mock->modname);
+	return sdbg_load_module(mock->modname);
 }
 
 
@@ -1030,7 +1028,7 @@ static int call_unload_module(struct mock_unload_module *mock)
 	}
 	/* Reset the do_wrap flag before calling unlad_module() */
 	do_wrap_kmod_module_remove_module = 1 + mock->remove_repeat;
-	return unload_module(mock->modname);
+	return sdbg_unload_module(mock->modname);
 }
 
 /* Error in kmod_new() */
