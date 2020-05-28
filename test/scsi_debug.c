@@ -187,6 +187,11 @@ struct kmod_ctx *
 __real_kmod_new(const char *dirname,
 		const char *const *config_paths);
 
+/*
+ * Library will call kmod_new() only once until sdbg_release() is called.
+ * We need to avoid expecting more calls.
+ */
+static struct kmod_ctx *__current_ctx;
 struct kmod_ctx *
 __wrap_kmod_new(const char *dirname,
 		const char *const *config_paths)
@@ -196,14 +201,18 @@ __wrap_kmod_new(const char *dirname,
 	check_expected_ptr(dirname);
 	check_expected_ptr(config_paths);
 	ptr = mock_ptr_type(void *);
-	if (ptr == WRAP_USE_REAL_PTR)
-		return __real_kmod_new(dirname, config_paths);
-	else
-		return ptr;
+	if (ptr == WRAP_USE_REAL_PTR) {
+		__current_ctx = ptr;
+		ptr = __real_kmod_new(dirname, config_paths);
+	} else
+		__current_ctx = ptr;
+	return ptr;
 }
 
 static void call_kmod_new(struct kmod_ctx *kmod_new_rv)
 {
+	if (__current_ctx != NULL)
+		return;
 	expect_value(__wrap_kmod_new, dirname, NULL);
 	expect_value(__wrap_kmod_new, config_paths, NULL);
 	will_return(__wrap_kmod_new, kmod_new_rv);
@@ -212,23 +221,52 @@ static void call_kmod_new(struct kmod_ctx *kmod_new_rv)
 struct kmod_ctx *
 __real_kmod_unref(struct kmod_ctx *ctx);
 
+static bool __exiting;
+static bool __unref_called_at_exit;
+
+/*
+ * cmocka tests don't work at atexit time. This function is
+ * registered with atexit(3) to check if sdbg_release() had been
+ * called.
+ */
+void check_atexit(void)
+{
+	if (__exiting && !__unref_called_at_exit) {
+		log(LOG_ERR, "ERROR: kmod_unref not called\n");
+		_exit(1);
+	}
+}
+
 struct kmod_ctx *
 __wrap_kmod_unref(struct kmod_ctx *ctx)
 {
 	struct kmod_ctx *rv;
 
+	if (__exiting) {
+		__unref_called_at_exit = true;
+		return __real_kmod_unref(ctx);
+	}
+
 	check_expected_ptr(ctx);
 	rv = mock_ptr_type(struct kmod_ctx *);
-	if (rv != WRAP_USE_REAL_PTR)
-		return rv;
-	else
-		return __real_kmod_unref(ctx);
+	if (rv == WRAP_USE_REAL_PTR)
+		rv = __real_kmod_unref(ctx);
+	__current_ctx = NULL;
+	return rv;
 }
 
-static void call_kmod_unref(struct kmod_ctx *rv)
+static void call_kmod_unref(void)
 {
+	if (__current_ctx == NULL)
+		return;
 	expect_not_value(__wrap_kmod_unref, ctx, NULL);
-	will_return(__wrap_kmod_unref, rv);
+	will_return(__wrap_kmod_unref, __current_ctx);
+}
+
+static void call_sdbg_release(void)
+{
+	call_kmod_unref();
+	sdbg_release();
 }
 
 int
@@ -471,7 +509,6 @@ static int call_is_module_loaded(struct mock_is_module_loaded *mock)
 		}
 		call_kmod_module_unref_list(mock->lookup_rv,
 					    mock->n_lookup_list);
-		call_kmod_unref(mock->kmod_new_rv);
 	}
 
 	rv = is_module_loaded(mock->modname);
@@ -483,6 +520,7 @@ static void test_is_module_loaded_err_new(void **state __attribute__((unused)))
 {
 	struct mock_is_module_loaded mock = { .modname = mod_name };
 
+	call_sdbg_release();
 	assert_int_equal(call_is_module_loaded(&mock), -1);
 }
 
@@ -816,7 +854,6 @@ static int call_load_module(struct mock_load_module *mock)
 		}
 		call_kmod_module_unref_list(mock->lookup_rv,
 					    mock->n_lookup_list);
-		call_kmod_unref(mock->kmod_new_rv);
 	}
 
 	return load_module(mock->modname);
@@ -830,6 +867,12 @@ static void test_load_module_err_new(void **state __attribute__((unused)))
 		.modname = mod_name,
 	};
 
+	/*
+	 * Without this, kmod_new() won't be called.
+	 * This serves also as a test of calling into scsi-debug after
+	 * sdbg_release().
+	 */
+	call_sdbg_release();
 	assert_int_equal(call_load_module(&mock), -1);
 }
 
@@ -1096,7 +1139,6 @@ static int call_unload_module(struct mock_unload_module *mock)
 			call_kmod_module_remove_module(mock->remove_rv);
 			call_kmod_module_unref(WRAP_USE_REAL_PTR);
 		}
-		call_kmod_unref(mock->kmod_new_rv);
 	}
 	/* Reset the nowrap flag before calling unlad_module() */
 	nowrap_kmod_module_remove_module = 0;
@@ -1109,6 +1151,8 @@ static void test_unload_module_err_new(void **state __attribute__((unused)))
 	struct mock_unload_module mock = {
 		.modname = mod_name,
 	};
+
+	call_sdbg_release();
 	assert_int_equal(call_unload_module(&mock), -1);
 }
 
@@ -1254,9 +1298,11 @@ int main(void)
 {
 	int rv = 0;
 
+	atexit(check_atexit);
 	ioc_init();
 	rv += run_kernel_dir_name_tests();
 	rv += run_mock_modload_tests();
 	rv += run_real_modload_tests();
+	__exiting = true;
 	return rv;
 }
