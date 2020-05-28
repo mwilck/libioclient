@@ -1192,6 +1192,80 @@ static void test_unload_module_name_bad(void **state __attribute__((unused)))
 	assert_int_equal(call_unload_module(&mock), 0);
 }
 
+/* Error return from kmod_module_remove_module() */
+static void test_unload_module_unload_err(void **state __attribute__((unused)))
+{
+	struct mock_unload_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.new_mod_rv =  WRAP_USE_REAL,
+		.remove_rv = -EBUSY,
+	};
+
+	assert_int_equal(call_unload_module(&mock), -1);
+}
+
+/* Bad return value from kmod_module_remove_module() */
+static void test_unload_module_unload_bad(void **state __attribute__((unused)))
+{
+	struct mock_unload_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.new_mod_rv =  WRAP_USE_REAL,
+		.remove_rv = 1000,
+	};
+
+	assert_int_equal(call_unload_module(&mock), -1);
+}
+
+/*
+ * Settings in the following 3 tests must match the retry settings in
+ * unload_module(). Default is 1s max wait and retry every 0.1s, thus
+ * 9 x -EAGAIN followed by success succeeds, 10 x -EAGAIN fails.
+ */
+
+/* Retries ending in good status  */
+static void test_unload_module_repeat_good_9(void **state __attribute__((unused)))
+{
+	struct mock_unload_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.new_mod_rv =  WRAP_USE_REAL,
+		.remove_rv = -ENOENT,
+		.remove_repeat = 9,
+	};
+
+	assert_int_equal(call_unload_module(&mock), 0);
+}
+
+/* Retries exhausted  */
+static void test_unload_module_repeat_bad_9(void **state __attribute__((unused)))
+{
+	struct mock_unload_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.new_mod_rv =  WRAP_USE_REAL,
+		.remove_rv = -EAGAIN,
+		.remove_repeat = 9,
+	};
+
+	assert_int_equal(call_unload_module(&mock), -1);
+}
+
+/* Error return after some retries */
+static void test_unload_module_repeat_bad_3(void **state __attribute__((unused)))
+{
+	struct mock_unload_module mock = {
+		.modname = mod_name,
+		.kmod_new_rv = WRAP_USE_REAL_PTR,
+		.new_mod_rv =  WRAP_USE_REAL,
+		.remove_rv = -ENODEV,
+		.remove_repeat = 3,
+	};
+
+	assert_int_equal(call_unload_module(&mock), -1);
+}
+
 static int real_unload_module(const char *modname)
 {
 	struct mock_unload_module mock = {
@@ -1250,6 +1324,11 @@ static int run_mock_modload_tests(void)
 		cmocka_unit_test(test_unload_module_err_new),
 		cmocka_unit_test(test_unload_module_name_null),
 		cmocka_unit_test(test_unload_module_name_bad),
+		cmocka_unit_test(test_unload_module_unload_err),
+		cmocka_unit_test(test_unload_module_unload_bad),
+		cmocka_unit_test(test_unload_module_repeat_good_9),
+		cmocka_unit_test(test_unload_module_repeat_bad_9),
+		cmocka_unit_test(test_unload_module_repeat_bad_3),
 	};
 
 	return cmocka_run_group_tests(mock_modload_tests, NULL, NULL);
