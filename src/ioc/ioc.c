@@ -163,7 +163,7 @@ static void ref_context(struct context *c)
 static void arm_event_timer(struct aio_group *grp, uint64_t time)
 {
 	struct itimerspec start_it = {
-		.it_interval = { 0, },
+		.it_interval = { .tv_sec = 0, },
 	};
 
 	if (time == 0)
@@ -188,8 +188,8 @@ static void arm_event_timer(struct aio_group *grp, uint64_t time)
 static void disarm_event_timer(struct aio_group *grp)
 {
 	static const struct itimerspec stop_it = {
-		.it_interval = { 0, },
-		.it_value = { 0, },
+		.it_interval = { .tv_sec = 0, },
+		.it_value = { .tv_sec = 0, },
 	};
 
 	pthread_mutex_lock(&grp->timer_mutex);
