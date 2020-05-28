@@ -17,8 +17,9 @@ struct sdbg_test_state {
 };
 
 static bool i_am_root;
-static const char mod_name[] = "scsi_debug";
-//static const char mod_name[] = "tcm_qla2xxx";
+
+/* Override by setting environment variable IOC_KMOD_TEST_MODULE*/
+static const char *mod_name = SDBG_MOD_NAME;
 
 static bool test_module_loaded(void **state)
 {
@@ -456,9 +457,8 @@ static const struct mock_is_module_loaded_loop mock_imll_wrong = {
 	.get_name_rv = "%WRONG%"
 };
 
-static const struct mock_is_module_loaded_loop mock_imll_good = {
+static struct mock_is_module_loaded_loop mock_imll_good = {
 	.get_module_rv = WRAP_DUMMY_PTR,
-	.get_name_rv = mod_name,
 };
 
 /* list of 2 entries, first wrong, 2nd good */
@@ -809,9 +809,8 @@ static const struct mock_load_module_loop mock_lm_wrong = {
 	.get_name_rv = "%WRONG%",
 };
 
-static const struct mock_load_module_loop mock_lm_good = {
+static struct mock_load_module_loop mock_lm_good = {
 	.get_module_rv = WRAP_DUMMY_PTR,
-	.get_name_rv = mod_name,
 };
 
 /* Simple good case */
@@ -1279,6 +1278,18 @@ static bool check_root(void)
 		return true;
 }
 
+static void set_mod_name(void)
+{
+	const char *modname = getenv("IOC_KMOD_TEST_MODULE");
+
+	if (modname)
+		mod_name = modname;
+
+	/* Initializers for tests */
+	mock_imll_good.get_name_rv = mod_name;
+	mock_lm_good.get_name_rv = mod_name;
+}
+
 int main(void)
 {
 	int rv = 0;
@@ -1287,6 +1298,7 @@ int main(void)
 	ioc_init();
 
 	i_am_root = check_root();
+	set_mod_name();
 
 	rv += run_mock_modload_tests();
 	rv += run_slow_modload_tests();
